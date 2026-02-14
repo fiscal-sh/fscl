@@ -1,0 +1,19 @@
+{
+  "name": "fscl",
+  "version": "0.0.1",
+  "description": "Local-first financial data layer for AI agents",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/benbjurstrom/fscl.git"
+  },
+  "author": "benbjurstrom",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/benbjurstrom/fscl/issues"
+  },
+  "homepage": "https://github.com/benbjurstrom/fscl#readme"
+}
