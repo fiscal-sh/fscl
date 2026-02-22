@@ -1,19 +1,61 @@
 {
   "name": "fscl",
-  "version": "0.0.1",
-  "description": "Local-first financial data layer for AI agents",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "version": "0.1.0",
+  "description": "Headless CLI for Actual Budget",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "fscl": "dist/index.js",
+    "fiscal": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "provenance": true,
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/benbjurstrom/fscl.git"
+    "url": "https://github.com/fiscal-sh/fscl.git"
   },
+  "homepage": "https://fiscal.sh",
+  "bugs": {
+    "url": "https://github.com/fiscal-sh/fscl/issues"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "check": "tsc --noEmit",
+    "test": "vitest"
+  },
+  "keywords": [
+    "actual-budget",
+    "cli",
+    "finance",
+    "budgeting",
+    "envelope-budgeting"
+  ],
   "author": "benbjurstrom",
   "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/benbjurstrom/fscl/issues"
+  "dependencies": {
+    "@actual-app/api": "^26.2.0",
+    "@clack/prompts": "^1.0.1",
+    "commander": "^13.1.0",
+    "csv-parse": "^5.6.0",
+    "date-fns": "^4.1.0",
+    "xml2js": "^0.6.2",
+    "zod": "^4.3.6"
   },
-  "homepage": "https://github.com/benbjurstrom/fscl#readme"
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/xml2js": "^0.4.14",
+    "tsup": "^8.3.5",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.2",
+    "vitest": "^4.0.18"
+  }
 }

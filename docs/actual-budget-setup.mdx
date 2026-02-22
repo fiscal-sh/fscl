@@ -1,0 +1,109 @@
+---
+title: Actual Budget Server
+description: Set up an Actual Budget server so you can visualize your Fiscal budget in a web dashboard.
+category: Guides
+sort: 2
+---
+
+Fiscal enables agents to manage your budget data through the `fscl cli`, but sometimes you want a visual dashboard — charts, graphs, and a calendar view of your transactions. [Actual Budget](https://actualbudget.org/) provides exactly that. This guide walks you through setting up an Actual Budget server and connecting it to Fiscal.
+
+## Why run a server?
+
+Without a server, Fiscal stores your budget locally and everything works fine. Adding a server gives you:
+
+- **A web dashboard** at `http://localhost:5006` for visual budgeting
+- **Sync** between the CLI and the web UI — changes in either show up in both
+- **Multi-device access** if you expose the server on your network
+
+## Start the server
+
+<Aside title="Prerequisites">
+    - This guide assumes you have [Docker](https://docs.docker.com/get-docker/) installed and running.
+</Aside>
+
+With the following command Docker will launch a pre-built image with the full Actual Budget server inside it:
+
+```bash
+docker run --pull=always --restart=unless-stopped -d \
+  -p 5006:5006 \
+  -v ~/actual-data:/data \
+  --name actual-budget \
+  actualbudget/actual-server:latest
+```
+
+Note that the The `-v ~/actual-data:/data` flag persists your data to a directory on your machine — without it, data only exists inside the container and is lost when the container is removed.
+
+## Verify the server is running
+
+You should see output like:
+
+```bash
+actual_server-1  | Listening on :::5006...
+```
+
+## Set your password
+
+Open [http://localhost:5006](http://localhost:5006) in your browser. On first visit, Actual Budget asks you to create a password. Enter it and confirm.
+
+There is no username — just a single server-wide password. Keep it safe; there's no recovery flow (though you can reset it with `--reset-password` if you have server access).
+
+## Connect Fiscal to the server
+
+Pass the server URL and the password you just created:
+
+```bash
+fscl budgets create "My Budget" --mode local
+fscl budgets push \
+  --server-url http://localhost:5006 \
+  --password YOUR_PASSWORD
+```
+
+This creates the budget locally, then uploads it to the server. If you already have a local budget, run only `fscl budgets push`.
+
+To avoid passing credentials every time, add them to your config or environment:
+
+```bash
+# Environment variables
+export FISCAL_SERVER_URL=http://localhost:5006
+export FISCAL_PASSWORD=YOUR_PASSWORD
+```
+
+Or in `~/.config/fscl/config.json`:
+
+```json
+{
+  "serverUrl": "http://localhost:5006",
+  "password": "YOUR_PASSWORD"
+}
+```
+
+## Open the dashboard
+
+Navigate to [http://localhost:5006](http://localhost:5006) and log in with your password. You'll see your budget, accounts, transactions, and reports — all synced with what Fiscal manages on the CLI.
+
+Changes flow both ways: edits in the web UI appear in `fscl` commands, and CLI changes appear in the dashboard after a sync.
+
+## Stopping and restarting
+
+```bash
+# Stop the server
+docker stop actual-budget
+
+# Start it again (data persists in the volume)
+docker start actual-budget
+```
+
+To remove and recreate:
+
+```bash
+docker rm actual-budget
+# Re-run the docker run command from above
+```
+
+## Updating
+
+```bash
+docker pull actualbudget/actual-server:latest
+docker stop actual-budget && docker rm actual-budget
+# Re-run the docker run command from above
+```

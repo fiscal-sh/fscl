@@ -1,0 +1,71 @@
+---
+title: Quickstart
+description: Get Fiscal running and set up your first budget in about five minutes.
+category: Getting Started
+sort: 1
+---
+
+Get Fiscal running and set up your first budget in about five minutes.
+
+## Install
+
+```bash
+npm install -g fscl
+```
+
+## Create your first budget
+
+Run the init wizard to create a budget and write your config:
+
+```bash
+fscl init
+```
+
+You'll be asked to choose a mode:
+
+- **local** — Creates a budget on your machine. No server needed. Pick this if you're just getting started or don't plan to use the Actual Budget web UI.
+- **remote** — Pulls down a budget that already exists on an [Actual Budget server](https://actualbudget.org/docs/installing/). Pick this if you're already using Actual Budget and want to manage it from the CLI.
+
+If you start local and later want to sync to a server, run `fscl budgets push`.
+
+## Install the agent skills
+
+Fiscal includes a comprehensive set of [Agent Skills](https://agentskills.io/) that teach your AI agent how to act as your personal accountant — managing your budget, handling imports, and categorizing transactions so you don't have to memorize any commands.
+
+```bash
+npx skills add fiscal-sh/fscl
+```
+
+This works with Claude Code, Cursor, Codex, and [other agents that support skills](https://github.com/vercel-labs/skills#supported-agents).
+
+## Start using it
+
+With the skill installed, just talk to your agent in plain language:
+
+> Help me set up my budget with fscl.
+
+The agent will ask about your bank accounts, income, and spending categories, then create everything using fscl commands behind the scenes. You don't need to know the CLI — just answer its questions.
+
+### Day-to-day tasks
+
+Once your budget exists, hand off routine work to your agent:
+
+**Import a bank statement:**
+
+> Import ~/Downloads/january-checking.ofx into my checking account and categorize everything.
+
+The agent will import the file, run your rules to auto-categorize known payees, and ask you about anything it doesn't recognize. It creates rules as it goes so future imports get smarter.
+
+**Check your budget:**
+
+> How am I doing this month?
+
+**Set up next month:**
+
+> Set up my budget for March. Same as last month but bump groceries to $600.
+
+## Next steps
+
+- [Budgeting Philosophy](budgeting-philosophy) — how envelope budgeting works and why it matters
+- [Budget Setup Guide](budget-setup-guide) — detailed walkthrough for setting up a real budget
+- [Command Reference](/docs/skills/references/command-reference) — every command and option

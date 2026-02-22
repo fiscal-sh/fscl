@@ -1,0 +1,154 @@
+---
+title: Budgeting Philosophy
+description: How envelope budgeting works, why it's effective, and how Fiscal applies it.
+category: Getting Started
+sort: 3
+---
+
+Fiscal is built on **envelope budgeting** — the same system that financial advisors have recommended for decades, and the same approach used by Actual Budget, YNAB, and every "zero-based budgeting" tool out there. Here's how it works and why it's effective.
+
+## The core idea: every dollar has a job
+
+Traditional budgeting asks "how much did I spend?" Envelope budgeting asks **"what do I want this money to do?"**
+
+You take the money you actually have right now — not what you expect to earn, not your credit limit, just what's in your accounts — and assign every dollar to a category. Rent, groceries, entertainment, savings. When the money is assigned, it has a job. When "To Budget" hits $0, you're done.
+
+This is the fundamental shift: you're not tracking spending after the fact. You're making spending decisions before the money leaves your account.
+
+## How envelopes work
+
+Think of each budget category as a physical envelope with cash in it.
+
+- **Budgeting** puts money into envelopes
+- **Spending** takes money out of envelopes
+- **Moving money** between envelopes is fine — life happens
+- **An empty envelope** means you stop spending in that category (or move money from another)
+
+In Fiscal, categories are your envelopes. When you budget $500 to Groceries, that's $500 in the Groceries envelope. When you buy groceries, the amount comes out. If you hit $0, you either stop or move money from somewhere else.
+
+## The rules
+
+### 1. Only budget money you have
+
+This is the most important rule. Don't budget next month's paycheck. Don't budget money you think is coming. Budget what's in your accounts right now.
+
+If your total account balances add up to $5,000, you can budget exactly $5,000 across all your categories.
+
+### 2. Every dollar gets a job
+
+Budget until "To Budget" is $0. If you have money sitting in "To Budget," it's unassigned — it doesn't have a plan, and unplanned money tends to get spent without thought.
+
+Even if the job is "sit in savings," that's a job. Assign it.
+
+### 3. Adjust as you go
+
+Your budget is a living plan, not a rigid contract. Overspent on dining out? Move money from entertainment to cover it. Car repair you didn't expect? Pull from your emergency fund. The point isn't to predict the future perfectly — it's to make conscious decisions about trade-offs.
+
+```bash
+# You're $45 over on Dining Out, but Entertainment has $80 left
+fscl month set 2026-02 <dining-id> 245.00      # was 200, now 245
+fscl month set 2026-02 <entertainment-id> 155.00  # was 200, now 155
+```
+
+### 4. Cover overspending
+
+If a category goes negative and you don't move money to cover it, that negative balance carries forward and reduces next month's "To Budget." The money has to come from somewhere — either you choose where, or the system takes it from your general pool.
+
+It's better to make the choice yourself.
+
+## Income and the "To Budget" pool
+
+When you earn money — a paycheck, a freelance payment, a refund — it lands in "To Budget." From there, you assign it to categories.
+
+**How income flows:**
+
+1. Paycheck hits your checking account
+2. Transaction is categorized to an income category (e.g., "Salary")
+3. The amount appears in "To Budget"
+4. You assign it to expense and savings categories
+5. "To Budget" returns to $0
+
+If you don't budget your income this month, it rolls over — "To Budget" grows and waits for you to assign it. Some people use this intentionally: earning a month ahead means you budget January's income in February, giving you a full month's buffer.
+
+## Handling real-life situations
+
+### Overspending
+
+When you spend more than you budgeted in a category, the category balance goes negative. You have two options:
+
+1. **Move money from another category** to cover it (recommended)
+2. **Do nothing** and let the negative balance reduce next month's "To Budget"
+
+Option 1 forces you to make a trade-off. Option 2 pushes the problem to next month.
+
+### Irregular expenses
+
+Car insurance paid every 6 months? Annual subscriptions? Budget a fraction each month:
+
+- $600 insurance bill every 6 months → budget $100/month to "Car Insurance"
+- When the bill arrives, you have the money ready
+
+### Savings goals
+
+Create a category for each goal. Budget monthly contributions. The balance accumulates over time.
+
+```bash
+fscl categories create "Vacation" --group <savings-group-id>
+fscl month set 2026-02 <vacation-id> 300.00
+```
+
+At $300/month, a $3,600 goal takes 12 months. The money sits in the category until you spend it.
+
+### Returns and refunds
+
+A return goes back to the same category as the original purchase. If you returned a $50 shirt, add a +$50 transaction to Clothing. The category balance goes back up.
+
+### Reimbursements
+
+Create a dedicated category (e.g., "Business Expenses") and enable rollover:
+
+```bash
+fscl categories create "Business Expenses" --group <personal-group-id>
+fscl month set-carryover 2026-02 <biz-exp-id> true
+```
+
+When you spend, the category goes negative. When you're reimbursed, it returns to zero. Rollover keeps the negative balance from affecting next month's budget.
+
+## Credit cards and envelopes
+
+Credit cards can be confusing in an envelope system. Here's the key insight:
+
+**When you buy something with a credit card, the money leaves the budget category immediately.** You budgeted $500 for groceries. You buy $50 of groceries on your credit card. Your Groceries envelope now has $450. The fact that the cash hasn't left your checking account yet is an accounting detail — the budget already accounted for it.
+
+This means: **if every credit card purchase comes from a funded category, you always have enough cash to pay the bill.** The money is sitting in your checking account, earmarked by the budget.
+
+If you're carrying credit card debt (can't pay the full statement balance), see the [Budget Setup Guide](budget-setup-guide#credit-cards) for the debt paydown strategy.
+
+## Why this works
+
+Envelope budgeting works because it replaces vague intentions with concrete decisions.
+
+"I should spend less on eating out" becomes "I have $200 for dining this month, and I've spent $140 with two weeks left." That's actionable. You can see the trade-off in real time. If you want to go to dinner, you know exactly what you're giving up.
+
+It also eliminates the biggest failure mode of traditional budgeting: looking at your bank balance and thinking you can afford something. Your bank balance doesn't tell you what that money is for. Your budget does.
+
+## Getting started vs. getting perfect
+
+Your first month will be messy. You'll guess wrong on half your categories. Some will be way over, others untouched. That's normal.
+
+**Month 1:** Estimate everything. Track what you actually spend.
+**Month 2:** Adjust based on real data. You now know what groceries actually cost.
+**Month 3:** Most categories are dialed in. You're making real decisions about where your money goes.
+
+The value isn't in having a perfect budget from day one. It's in the habit of assigning every dollar a job and adjusting when reality doesn't match the plan.
+
+## Fiscal's approach
+
+Fiscal doesn't reinvent budgeting. It gives you Actual Budget's proven envelope system through a CLI, designed for automation.
+
+- **Rules** automate categorization so you spend less time on data entry
+- **Templates** automate monthly budget allocation so you're not re-entering the same amounts
+- **Draft/apply workflows** let you make bulk changes efficiently
+- **JSON output** means AI agents or scripts can manage your budget alongside you
+
+The philosophy is the same whether you're clicking through a GUI or running commands in a terminal. The only difference is that Fiscal makes it scriptable.

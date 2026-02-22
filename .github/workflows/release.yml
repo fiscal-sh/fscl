@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+    paths-ignore:
+      - '**/*.md'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm clean-install
+
+      - name: Build
+        run: npm run build
+
+      - name: Type check
+        run: npm run check
+
+      - name: Determine version bump
+        id: version
+        run: |
+          # Tag push — already versioned, publish directly
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "bump=skip" >> $GITHUB_OUTPUT
+            echo "Tag push — skipping version bump"
+            exit 0
+          fi
+
+          # Manual dispatch — use the selected bump type
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "bump=$BUMP_INPUT" >> $GITHUB_OUTPUT
+            echo "Manual trigger — will bump $BUMP_INPUT"
+            exit 0
+          fi
+
+          # Commit-driven — scan for [patch], [minor], [major] markers
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LATEST_TAG" ]; then
+            COMMITS=$(git log --format=%s)
+          else
+            COMMITS=$(git log ${LATEST_TAG}..HEAD --format=%s)
+          fi
+
+          echo "Commits since last tag:"
+          echo "$COMMITS"
+
+          if echo "$COMMITS" | grep -q "\[major\]"; then
+            echo "bump=major" >> $GITHUB_OUTPUT
+            echo "Found [major] marker"
+          elif echo "$COMMITS" | grep -q "\[minor\]"; then
+            echo "bump=minor" >> $GITHUB_OUTPUT
+            echo "Found [minor] marker"
+          elif echo "$COMMITS" | grep -q "\[patch\]"; then
+            echo "bump=patch" >> $GITHUB_OUTPUT
+            echo "Found [patch] marker"
+          else
+            echo "bump=none" >> $GITHUB_OUTPUT
+            echo "No version marker found — skipping release"
+          fi
+        env:
+          GITHUB_REF: ${{ github.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          BUMP_INPUT: ${{ inputs.bump }}
+
+      - name: Configure git
+        if: steps.version.outputs.bump != 'none' && steps.version.outputs.bump != 'skip'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        if: steps.version.outputs.bump != 'none' && steps.version.outputs.bump != 'skip'
+        run: npm version "$BUMP" -m "v%s"
+        env:
+          BUMP: ${{ steps.version.outputs.bump }}
+
+      - name: Push version commit and tag
+        if: steps.version.outputs.bump != 'none' && steps.version.outputs.bump != 'skip'
+        run: |
+          git push
+          git push --tags
+
+      - name: Publish to npm
+        id: publish
+        if: steps.version.outputs.bump != 'none'
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        if: steps.publish.outcome == 'success'
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+
+          LATEST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$LATEST_TAG" ]; then
+            SINCE=""
+          else
+            SINCE=$(git log -1 --format=%cI ${LATEST_TAG})
+          fi
+
+          if [ -z "$SINCE" ]; then
+            PRS=$(gh pr list --state merged --json number,title,author --limit 100)
+          else
+            PRS=$(gh pr list --state merged --search "merged:>=${SINCE}" --json number,title,author --limit 100)
+          fi
+
+          CHANGELOG=$(echo "$PRS" | jq -r '.[] | "- \(.title) (#\(.number))"')
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="- Direct commits to main"
+          fi
+
+          NOTES="## What's Changed
+          ${CHANGELOG}
+
+          **Full Changelog**: https://github.com/${REPO}/compare/${LATEST_TAG:-v0.0.0}...v${VERSION}"
+
+          gh release create "v${VERSION}" --title "v${VERSION}" --notes "$NOTES"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}

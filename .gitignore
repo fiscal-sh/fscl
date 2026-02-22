@@ -1,0 +1,9 @@
+reference/
+.claude/
+node_modules/
+dist/
+My-Finances-67c6680/
+agents/counselors
+.agents
+AGENTS.md
+CLAUDE.md
