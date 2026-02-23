@@ -1,6 +1,6 @@
 {
   "name": "fscl",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Headless CLI for Actual Budget",
   "type": "module",
   "main": "dist/index.js",
