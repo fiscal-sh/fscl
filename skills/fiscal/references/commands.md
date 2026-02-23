@@ -160,3 +160,4 @@ fscl budgets push --server-url http://actual.local:5006
 ```
 
 Interactive `fscl init` asks whether to install the Fiscal skill (`npx skills add fiscal-sh/fscl`) at the end. In non-interactive mode, run that command manually when needed.
+If init is run as `npx fscl init`, interactive mode also asks whether to install fscl globally with `npm install -g fscl`.

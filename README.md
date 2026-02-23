@@ -16,6 +16,8 @@ npm install -g fscl
 fscl init
 ```
 
+If you run setup via `npx fscl init`, fscl prompts to install itself globally (`npm install -g fscl`) so `fscl` is available on your PATH afterward.
+
 At the end of interactive setup, fscl offers to install the agent skill by running:
 ```bash
 npx skills add fiscal-sh/fscl

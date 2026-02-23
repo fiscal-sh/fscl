@@ -35,6 +35,8 @@ const LOGO = [
   '██║     ██║███████║╚██████╗██║  ██║███████╗',
   '╚═╝     ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝╚══════╝',
 ];
+const CLI_PACKAGE_NAME = 'fscl';
+const GLOBAL_INSTALL_COMMAND = `npm install -g ${CLI_PACKAGE_NAME}`;
 const SKILL_SOURCE = 'fiscal-sh/fscl';
 const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILL_SOURCE}`;
 
@@ -96,6 +98,63 @@ function configPatch(setup: BudgetSetupInput, result: BudgetCreationResult): Par
     serverURL: setup.serverURL,
     token: setup.token,
   };
+}
+
+function isLikelyNpxExecution(): boolean {
+  if (process.env.npm_command === 'exec') {
+    return true;
+  }
+  const scriptPath = process.argv[1] ?? '';
+  return /[/\\]_npx[/\\]/.test(scriptPath);
+}
+
+function installGlobalCli(): Promise<void> {
+  const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return new Promise((resolve, reject) => {
+    const child = spawn(npmBin, ['install', '-g', CLI_PACKAGE_NAME], {
+      stdio: 'inherit',
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `Command "${GLOBAL_INSTALL_COMMAND}" exited with code ${code ?? 'unknown'}.`,
+        ),
+      );
+    });
+  });
+}
+
+async function maybeInstallGlobalCli(): Promise<void> {
+  const shouldInstall = await p.confirm({
+    message: 'Install fscl globally now?',
+    active: 'yes',
+    inactive: 'no',
+    initialValue: true,
+  });
+
+  if (p.isCancel(shouldInstall) || !shouldInstall) {
+    p.log.info(`Skipped. Install later with:\n  ${GLOBAL_INSTALL_COMMAND}`);
+    return;
+  }
+
+  p.log.step(`Running: ${GLOBAL_INSTALL_COMMAND}`);
+  try {
+    await installGlobalCli();
+    p.log.success('fscl installed globally.');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    p.log.warn(
+      `Global install failed.\n` +
+        `Run manually:\n  ${GLOBAL_INSTALL_COMMAND}\n` +
+        `If you're running from the fscl repo, run:\n  npm install\n` +
+        `Reason: ${message}`,
+    );
+  }
 }
 
 function installSkills(): Promise<void> {
@@ -264,7 +323,12 @@ Next steps:
 `);
 
           if (isInteractive) {
+            if (isLikelyNpxExecution()) {
+              await maybeInstallGlobalCli();
+            }
             await maybeInstallSkills();
+          } else if (isLikelyNpxExecution()) {
+            p.log.info(`Install fscl globally for future use:\n  ${GLOBAL_INSTALL_COMMAND}`);
           }
         }
       }),
