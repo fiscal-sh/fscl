@@ -32,9 +32,13 @@ If you start local and later want to sync to a server, run `fscl budgets push`.
 
 Fiscal includes a comprehensive set of [Agent Skills](https://agentskills.io/) that teach your AI agent how to act as your personal accountant — managing your budget, handling imports, and categorizing transactions so you don't have to memorize any commands.
 
+In interactive mode, `fscl init` asks whether to install these skills for you.
+
 ```bash
 npx skills add fiscal-sh/fscl
 ```
+
+If you run `fscl init --non-interactive`, run this command manually.
 
 This works with Claude Code, Cursor, Codex, and [other agents that support skills](https://github.com/vercel-labs/skills#supported-agents).
 

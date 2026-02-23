@@ -158,3 +158,5 @@ fscl init --non-interactive --mode local --budget-name "My Budget"
 fscl login http://actual.local:5006 --password secret
 fscl budgets push --server-url http://actual.local:5006
 ```
+
+Interactive `fscl init` asks whether to install the Fiscal skill (`npx skills add fiscal-sh/fscl`) at the end. In non-interactive mode, run that command manually when needed.

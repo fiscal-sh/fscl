@@ -11,17 +11,19 @@ A headless CLI for [Actual Budget](https://actualbudget.org/) — no server requ
 npm install -g fscl
 ```
 
-**2. Add the agent skills**
-```bash
-npx skills add fiscal-sh/fscl
-```
-
-**3. Set up your first budget**
+**2. Set up your first budget**
 ```bash
 fscl init
 ```
 
-**4. Talk to your agent in plain language**
+At the end of interactive setup, fscl offers to install the agent skill by running:
+```bash
+npx skills add fiscal-sh/fscl
+```
+
+If you skip it, run that command anytime.
+
+**3. Talk to your agent in plain language**
 - "Help me set up my budget."
 - "Import ~/Downloads/january-checking.ofx into my checking account and categorize everything."
 - "How am I doing this month?"

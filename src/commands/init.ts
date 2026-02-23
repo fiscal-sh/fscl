@@ -1,4 +1,5 @@
 import { stdin, stdout } from 'node:process';
+import { spawn } from 'node:child_process';
 
 import * as p from '@clack/prompts';
 import { Command } from 'commander';
@@ -34,6 +35,8 @@ const LOGO = [
   '██║     ██║███████║╚██████╗██║  ██║███████╗',
   '╚═╝     ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝╚══════╝',
 ];
+const SKILL_SOURCE = 'fiscal-sh/fscl';
+const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILL_SOURCE}`;
 
 function printBanner() {
   const colored = LOGO
@@ -93,6 +96,54 @@ function configPatch(setup: BudgetSetupInput, result: BudgetCreationResult): Par
     serverURL: setup.serverURL,
     token: setup.token,
   };
+}
+
+function installSkills(): Promise<void> {
+  const npxBin = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  return new Promise((resolve, reject) => {
+    const child = spawn(npxBin, ['skills', 'add', SKILL_SOURCE], {
+      stdio: 'inherit',
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `Command "${SKILLS_INSTALL_COMMAND}" exited with code ${code ?? 'unknown'}.`,
+        ),
+      );
+    });
+  });
+}
+
+async function maybeInstallSkills(): Promise<void> {
+  const shouldInstall = await p.confirm({
+    message: 'Install Fiscal agent skills now?',
+    active: 'yes',
+    inactive: 'no',
+    initialValue: true,
+  });
+
+  if (p.isCancel(shouldInstall) || !shouldInstall) {
+    p.log.info(`Skipped. Install later with:\n  ${SKILLS_INSTALL_COMMAND}`);
+    return;
+  }
+
+  p.log.step(`Running: ${SKILLS_INSTALL_COMMAND}`);
+  try {
+    await installSkills();
+    p.log.success('Fiscal agent skills installed.');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    p.log.warn(
+      `Failed to install skills automatically.\n` +
+        `Run manually:\n  ${SKILLS_INSTALL_COMMAND}\n` +
+        `Reason: ${message}`,
+    );
+  }
 }
 
 async function collectInteractiveSetup(
@@ -211,6 +262,10 @@ Next steps:
   fscl categories list
   fscl month set ${month} <category-id> 500.00
 `);
+
+          if (isInteractive) {
+            await maybeInstallSkills();
+          }
         }
       }),
     );

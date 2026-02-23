@@ -78,6 +78,8 @@ Validation errors include an `errors` array with `path` and `message` per item.
 
 Modes: `local` (disk-only), `remote` (pull from server). Use `budgets push` to upload a local budget. On success, prints `fscl status` output.
 
+Interactive `fscl init` also asks whether to install the Fiscal agent skill by running `npx skills add fiscal-sh/fscl`.
+
 ## status
 
 `fscl status [--compact]`
