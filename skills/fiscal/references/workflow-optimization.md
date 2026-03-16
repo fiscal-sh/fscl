@@ -118,6 +118,18 @@ If any accounts have negative balances (credit cards), verify the setup:
 - **Paying in full monthly?** No special setup needed — purchases use regular expense categories.
 - **Carrying debt?** See [credit-cards.md](credit-cards.md) for rollover category + carryover setup.
 
+### Verify transaction signs
+
+If credit card transactions were imported from OFX/QFX files, spot-check that purchases are negative (outflow) and payments are positive (inflow). Some bank exports have inconsistent signs. See [import-guide.md](import-guide.md) for fix procedures.
+
+### Link payment transfers
+
+If both checking and credit card accounts have been imported, payment entries likely exist on both sides as unlinked standalone transactions. Link them as transfers — see [credit-cards.md](credit-cards.md) "Linking payments when both accounts are imported."
+
+### Verify rules are account-scoped
+
+Review existing rules that match on `imported_payee` alone. If a payee (e.g., Google, Apple, PayPal) appears on multiple accounts with different meanings, add an `account` condition to prevent miscategorization. See [rules.md](rules.md) "Rules match across all accounts by default."
+
 ## What's Next
 
 Once optimization is complete, tell the user:

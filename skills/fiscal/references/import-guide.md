@@ -38,6 +38,31 @@ fscl transactions import <accountId> ./export.ofx --report
 
 With `--no-reconcile`, steps 3 is skipped (raw add, no rules, no dedup).
 
+## Credit card sign convention
+
+In Actual Budget, credit card transactions follow the same sign convention as other accounts:
+- **Purchases/charges** = negative (outflow, increases debt)
+- **Payments/credits** = positive (inflow, reduces debt)
+
+**Warning: OFX/QFX sign inconsistency.** Some banks export credit card OFX/QFX files with inconsistent signs — some charges come in positive (correct for the bank's perspective but wrong for Actual) while others come in negative (correct for Actual). This can happen when different transaction types (recurring subscriptions vs. one-time purchases) are encoded differently by the bank.
+
+**After importing a credit card OFX/QFX file, always verify signs:**
+
+```bash
+# Check for positive non-payment transactions (likely wrong sign)
+fscl transactions list <cc-acct-id> --start <date> --end <date> --json
+# Filter for amount > 0 where payee is NOT a payment — these are probably purchases with wrong signs
+```
+
+**Fixing sign issues:**
+- If ALL signs are inverted, re-import with `--flip-amount`
+- If signs are inconsistent within the file (some right, some wrong), use `transactions edit draft/apply` to flip individual transactions:
+  1. Generate the edit draft filtered to the credit card account
+  2. Negate the `amount` field on affected transactions
+  3. Apply the edit
+
+**Do not assume the import got signs right.** Spot-check that purchases show as negative and payments show as positive before proceeding with categorization.
+
 ## General flags
 
 | Flag | Default | Description |

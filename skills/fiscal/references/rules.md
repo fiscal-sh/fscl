@@ -103,6 +103,37 @@ Actual automatically creates rules based on user behavior:
 
 You can edit or delete these auto-created rules at any time.
 
+## Known issues
+
+### `type` field in rules draft
+
+`fscl rules draft` outputs `type` fields on conditions (e.g., `"type": "string"`) and actions (e.g., `"type": "id"`). However, `fscl rules apply` **rejects** these fields with `Unrecognized key: type`. Before applying a rules draft, strip all `type` fields from conditions and actions. This only affects the draft/apply workflow — `rules create` and `rules update` do not add `type` fields.
+
+### Rules match across all accounts by default
+
+A rule with only an `imported_payee` condition will match transactions on **every account**. This causes problems when the same payee text has different meanings on different accounts. For example, "Orig Co Name:Google" on a checking account is an AdSense revenue deposit, but on a credit card it's a Google Workspace or Cloud charge.
+
+**Always add an `account` condition when a payee could appear on multiple accounts with different meanings:**
+
+```json
+{
+  "stage": null,
+  "conditionsOp": "and",
+  "conditions": [
+    { "field": "imported_payee", "op": "contains", "value": "Orig Co Name:Google" },
+    { "field": "account", "op": "is", "value": "<checking-acct-id>" }
+  ],
+  "actions": [
+    { "field": "category", "op": "set", "value": "<affiliate-revenue-cat-id>" }
+  ]
+}
+```
+
+This is especially common with:
+- **ACH originators** (e.g., Google, Apple) that send payments to checking AND charge services on credit cards
+- **Payment processors** (e.g., PayPal, Stripe) that deposit revenue AND process expenses
+- **Transfers** between accounts at the same institution
+
 ## Workflow: creating rules via fscl
 
 ### 1. Validate rule JSON first

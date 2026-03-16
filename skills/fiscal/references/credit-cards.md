@@ -163,6 +163,40 @@ When carrying debt on multiple cards:
 - Once the highest-interest card is paid off, redirect that extra payment to the next highest
 - Use only one card for new purchases and pay it in full monthly
 
+## Linking payments when both accounts are imported
+
+When you import transactions for both the checking account and the credit card, payment entries appear on **both sides** as standalone transactions — they are not automatically linked as transfers. You must manually link them.
+
+**The problem:** Checking shows "Payment to Chase Card -$500" and the credit card shows "Payment Thank You $500" as two independent transactions. Both are categorized as "Credit Card Payments" but they aren't connected.
+
+**The fix — delete one side, convert the other to a transfer:**
+
+1. **Identify matching pairs** — Match checking outgoing payments with credit card incoming payments by date and amount. Dates may differ by 1-5 days due to processing time.
+
+2. **Delete the credit card side** — Remove the "Payment Thank You" entries from the credit card. The transfer conversion will recreate them as linked transfers.
+
+```bash
+fscl transactions delete <payment-thank-you-id> --yes
+```
+
+3. **Convert the checking side to transfers** — Use `transactions edit` to change the payee on checking payment entries to the credit card's transfer payee. Find the transfer payee via `fscl payees list --json` (look for entries with `transfer_acct` matching the credit card account ID).
+
+```bash
+fscl transactions edit draft --account <checking-acct-id> --start <date> --end <date>
+# In the draft, change "payee" to the credit card's transfer payee ID
+# for each payment transaction
+fscl transactions edit apply
+```
+
+4. **Verify** — Confirm transfers appear on both sides with `transfer_id` set:
+
+```bash
+fscl transactions list <cc-acct-id> --start <date> --end <date> --json
+# Look for entries with payee "Chase Checking 5736" and a transfer_id
+```
+
+**Important:** This also works via `transactions edit` (not just rules). Setting a transaction's payee to a transfer payee ID converts it into a linked transfer, automatically creating the corresponding entry on the other account.
+
 ### Important notes
 
 - All credit card accounts should be **on-budget** (not off-budget)

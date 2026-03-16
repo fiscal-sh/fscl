@@ -106,6 +106,10 @@ fscl transactions import <account-id> <file> --dry-run --report
 fscl transactions import <account-id> <file> --report
 ```
 
+**After importing credit card OFX/QFX files, verify transaction signs.** Some banks export credit card charges with inconsistent signs. Purchases should be negative (outflow) and payments positive (inflow). See [import-guide.md](import-guide.md) for details and fix procedures.
+
+**After importing both checking and credit card accounts, link payment transfers.** Payment entries appear on both sides as standalone transactions. Delete the credit card side payment entries and convert the checking side to transfers. See [credit-cards.md](credit-cards.md) "Linking payments when both accounts are imported."
+
 For CSV files that need column mapping, see [import-guide.md](import-guide.md).
 
 ## Step 6: Process Imported Transactions
