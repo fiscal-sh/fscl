@@ -139,6 +139,32 @@ fscl schedules history <id> --json           # Past transactions for a schedule
 fscl schedules reviews --due --json          # Schedules needing review
 ```
 
+## Reports
+
+Saved reports persist across sessions and sync with the Actual Budget UI. Use for recurring analysis; use `fscl query` for one-off ad-hoc queries.
+
+```bash
+# List saved reports
+fscl reports list --json
+
+# Show full report definition (date range, groupBy, conditions, etc.)
+fscl reports show <id> --json
+
+# Create a new report
+fscl reports create '{"name":"Monthly Expenses","conditionsOp":"and","mode":"total","groupBy":"Category","interval":"Monthly","balanceType":"Expense"}' --json
+
+# Create from file
+fscl reports create @report.json --json
+
+# Update (id and name required)
+fscl reports update '{"id":"...","name":"Monthly Expenses","conditionsOp":"and","dateRange":"thisMonth"}' --json
+
+# Delete
+fscl reports delete <id> --yes --json
+```
+
+Reports created in the Actual Budget UI are visible via `fscl reports list`. Reports created via fscl appear in the Actual UI.
+
 ## Init Modes
 
 ```bash

@@ -189,6 +189,7 @@ Flag these issues without being asked:
 - Duplicate payees → merge
 
 **Quarterly:**
-- Spending trends across months (use [query-library.md](query-library.md) for trend queries)
+- Spending trends across months (use [query-library.md](query-library.md) for trend queries, or `fscl reports list` to check saved reports)
 - Savings goal progress
 - Debt paydown progress (if applicable)
+- Review saved reports: `fscl reports list --json` — check if the user has reports in Actual Budget that can inform the analysis

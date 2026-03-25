@@ -2,6 +2,8 @@
 
 Pre-built AQL queries for common reporting needs. Each query is shown as an inline one-liner and a reusable module file.
 
+For saved reports that persist across sessions (and sync with Actual Budget's UI), use `fscl reports` instead. See [command-reference.md](command-reference.md#reports). Use ad-hoc queries below for one-off analysis.
+
 ## 1. Spending by category (current month)
 
 Total spent per category for a given month.

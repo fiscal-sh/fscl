@@ -78,4 +78,4 @@ The user may arrive with a specific question regardless of budget state. Always 
 - [references/import-guide.md](references/import-guide.md) — File import formats, CSV column mapping
 - [references/rules.md](references/rules.md) — Rule JSON schema, conditions, actions
 - [references/credit-cards.md](references/credit-cards.md) — Credit card strategies and debt tracking
-- [references/query-library.md](references/query-library.md) — Pre-built AQL queries for reports
+- [references/query-library.md](references/query-library.md) — Ad-hoc AQL queries and saved reports

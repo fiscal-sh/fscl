@@ -367,6 +367,22 @@ Reviews columns: `schedule_id`, `name`, `payee_name`, `amount`, `decision`, `rev
 | `tags update <id>` | `--name`, `--color`, `--description` |
 | `tags delete <id>` | `--yes` (required) |
 
+## reports
+
+| Command | Key Flags |
+|---|---|
+| `reports list` | |
+| `reports show <id>` | |
+| `reports create <json>` | Accepts `@filepath` |
+| `reports update <json>` | `id` required in JSON; accepts `@filepath` |
+| `reports delete <id>` | `--yes` (required) |
+
+List columns: `id`, `name`, `date_range`, `mode`, `group_by`, `interval`, `graph_type`
+
+Show columns: `id`, `name`, `start_date`, `end_date`, `is_date_static`, `date_range`, `mode`, `group_by`, `interval`, `balance_type`, `sort_by`, `show_empty`, `show_offbudget`, `show_hidden`, `show_uncategorized`, `trim_intervals`, `include_current`, `graph_type`, `conditions_op`, `conditions`
+
+Create/update JSON uses camelCase field names: `name`, `conditionsOp`, `startDate`, `endDate`, `isDateStatic`, `dateRange`, `mode`, `groupBy`, `interval`, `balanceType`, `sortBy`, `showEmpty`, `showOffBudget`, `showHiddenCategories`, `showUncategorized`, `trimIntervals`, `includeCurrentInterval`, `graphType`, `conditions`. Only `name` is required for create; `id` and `name` are required for update.
+
 ## query
 
 Run custom [ActualQL](https://actualbudget.org/docs/api/actual-ql/) queries.

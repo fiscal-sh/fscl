@@ -9,6 +9,7 @@ import { registerCategoryCommands } from './commands/categories.js';
 import { registerInitCommand } from './commands/init.js';
 import { registerPayeeCommands } from './commands/payees.js';
 import { registerQueryCommand } from './commands/query.js';
+import { registerReportCommands } from './commands/reports.js';
 import { registerRuleCommands } from './commands/rules.js';
 import { registerScheduleCommands } from './commands/schedules.js';
 import { registerStatusCommand } from './commands/status.js';
@@ -46,6 +47,7 @@ registerMonthCommands(program);
 registerRuleCommands(program);
 registerScheduleCommands(program);
 registerTagCommands(program);
+registerReportCommands(program);
 registerQueryCommand(program);
 
 await program.parseAsync(process.argv);
