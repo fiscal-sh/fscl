@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 
-import { api } from './actual-api.js';
+import { api, type ActualInitConfig } from './actual-api.js';
 
 import { CliError, ErrorCodes } from './cli.js';
 import { send, setActiveInternalApi } from './commands/common.js';
@@ -82,7 +82,7 @@ export async function withApi<T>(
     throw new CliError("Not logged in. Run 'fscl login' to authenticate.", ErrorCodes.NOT_LOGGED_IN);
   }
 
-  const initConfig: Record<string, unknown> = resolved.serverURL
+  const initConfig: ActualInitConfig = resolved.serverURL
     ? ({
         dataDir: resolved.dataDir,
         verbose: false,
