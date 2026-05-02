@@ -38,16 +38,19 @@ Use `--columns id,name` to get concise output when you only need IDs.
 
 ## Draft/Apply Pattern
 
-Seven commands use draft/apply: **categories**, **categorize**, **edit**, **reconcile**, **rules**, **month**, **templates**. The cycle is always the same:
+Seven workflows use draft/apply:
 
-```bash
-fscl <command> draft [filters]     # Writes JSON to <dataDir>/<budgetId>/drafts/
-# Edit the draft file
-fscl <command> apply --dry-run     # Preview changes
-fscl <command> apply               # Commit changes (deletes draft on success)
-```
+| Workflow | Draft command | Apply command |
+|---|---|---|
+| Categories | `fscl categories draft` | `fscl categories apply [--dry-run]` |
+| Categorize transactions | `fscl transactions categorize draft [filters]` | `fscl transactions categorize apply [--dry-run]` |
+| Edit transactions | `fscl transactions edit draft [filters]` | `fscl transactions edit apply [--dry-run]` |
+| Reconcile transactions | `fscl transactions reconcile draft [filters]` | `fscl transactions reconcile apply [--dry-run]` |
+| Rules | `fscl rules draft` | `fscl rules apply [--dry-run]` |
+| Month budgets | `fscl month draft <month>` | `fscl month apply <month> [--dry-run]` |
+| Month templates | `fscl month templates draft` | `fscl month templates apply [--dry-run]` |
 
-Never hand-create a new draft JSON file by guessing the `drafts/` path. Always generate it with `fscl <command> draft` first, then edit the generated file.
+Never hand-create a new draft JSON file by guessing the `drafts/` path. Always generate it with the draft command first, then edit the `path` returned in the command output.
 
 Draft files include `_meta` fields for context — these are ignored on apply.
 

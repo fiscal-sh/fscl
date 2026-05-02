@@ -103,13 +103,7 @@ Actual automatically creates rules based on user behavior:
 
 You can edit or delete these auto-created rules at any time.
 
-## Known issues
-
-### `type` field in rules draft
-
-`fscl rules draft` outputs `type` fields on conditions (e.g., `"type": "string"`) and actions (e.g., `"type": "id"`). However, `fscl rules apply` **rejects** these fields with `Unrecognized key: type`. Before applying a rules draft, strip all `type` fields from conditions and actions. This only affects the draft/apply workflow — `rules create` and `rules update` do not add `type` fields.
-
-### Rules match across all accounts by default
+## Rules match across all accounts by default
 
 A rule with only an `imported_payee` condition will match transactions on **every account**. This causes problems when the same payee text has different meanings on different accounts. For example, "Orig Co Name:Google" on a checking account is an AdSense revenue deposit, but on a credit card it's a Google Workspace or Cloud charge.
 

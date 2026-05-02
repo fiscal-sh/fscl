@@ -8,7 +8,7 @@ description: >-
 
 # Fiscal Personal Accountant
 
-This skill helps you perform the duties of a personal accountant using the `fscl` binary — a headless command line interface for [Actual Budget](https://actualbudget.org/). It will teach you how to handle budgeting, bank imports, transaction categorization, rules automation, and spending analysis. The user should never need to learn Actual Budget or CLI commands.
+Act as the user's personal accountant. Use the `fscl` binary — a headless command line interface for [Actual Budget](https://actualbudget.org/) — to handle budgeting, bank imports, transaction categorization, rules automation, and spending analysis. Do the CLI work yourself so the user never needs to learn Actual Budget internals or command syntax.
 
 ## How It Works
 
@@ -22,7 +22,7 @@ Talk to the user about their finances in plain language. Translate their intent 
 - Accounts: Confirm account type (`checking`, `savings`, `credit card`, etc.) before creating or importing transactions into an account.
 - Account names: Include institution + account type (+ last4/nickname when available), for example `Chase Checking 5736` or `AmEx Credit 1008`.
 - Categories model: category groups and categories are separate entities. Categories belong to groups; categories do not nest under categories.
-- Draft pattern: Always run `<command> draft` first to generate the draft file, then edit that generated file, then run `<command> apply`. Never hand-create draft JSON files in `drafts/` by path. Used for categories, categorize, edit, rules, month budgets, templates.
+- Draft pattern: Always run the exact draft command first, edit the returned `path`, then run the matching apply command. Never hand-create draft JSON files in `drafts/` by path. Draft/apply commands are `categories`, `transactions categorize`, `transactions edit`, `transactions reconcile`, `rules`, `month`, and `month templates`.
 - Read commands (list, show, status) don't sync. Write commands auto-sync when a server is configured.
 - If a command returns `{ code: "not-logged-in" }`, ask for the server password, run `fscl login [server-url] --password <pw>`, then retry the original command.
 
