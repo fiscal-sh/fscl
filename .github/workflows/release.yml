@@ -56,6 +56,7 @@ jobs:
           # Tag push — already versioned, publish directly
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "bump=skip" >> $GITHUB_OUTPUT
+            echo "tag_version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
             echo "Tag push — skipping version bump"
             exit 0
           fi
@@ -108,6 +109,12 @@ jobs:
         run: npm version "$BUMP" -m "v%s"
         env:
           BUMP: ${{ steps.version.outputs.bump }}
+
+      - name: Sync package version from tag
+        if: steps.version.outputs.bump == 'skip'
+        run: npm version "$TAG_VERSION" --no-git-tag-version
+        env:
+          TAG_VERSION: ${{ steps.version.outputs.tag_version }}
 
       - name: Push version commit and tag
         if: steps.version.outputs.bump != 'none' && steps.version.outputs.bump != 'skip'
