@@ -38,7 +38,7 @@ Use `--columns id,name` to get concise output when you only need IDs.
 
 ## Draft/Apply Pattern
 
-Six commands use draft/apply: **categories**, **categorize**, **edit**, **rules**, **month**, **templates**. The cycle is always the same:
+Seven commands use draft/apply: **categories**, **categorize**, **edit**, **reconcile**, **rules**, **month**, **templates**. The cycle is always the same:
 
 ```bash
 fscl <command> draft [filters]     # Writes JSON to <dataDir>/<budgetId>/drafts/
@@ -67,12 +67,17 @@ fscl transactions import <acct-id> <file> --report
 # 3. Auto-categorize with rules
 fscl rules run --and-commit
 
-# 4. Handle remaining uncategorized
+# 4. Reconcile reviewed transactions
+fscl transactions reconcile draft
+# Remove entries that are not reviewed yet
+fscl transactions reconcile apply
+
+# 5. Handle remaining uncategorized
 fscl transactions categorize draft
 # Fill in category IDs using _meta context
 fscl transactions categorize apply
 
-# 5. Create rules for new recurring payees
+# 6. Create rules for new recurring payees
 fscl rules draft
 # Add new rules (rows without id)
 fscl rules apply

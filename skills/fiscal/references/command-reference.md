@@ -157,6 +157,8 @@ Output columns: `id`, `name`, `offbudget`, `closed`, `balance_current`
 | `transactions list <acctId>` | `--start`, `--end` (both required) |
 | `transactions uncategorized` | `--account <id>`, `--start`, `--end` |
 | `transactions add <acctId>` | `--date`, `--amount` (required); `--payee`, `--category`, `--notes`, `--cleared` |
+| `transactions transfer <fromAcct> <toAcct>` | `--date`, `--amount` (required); `--notes`, `--cleared`, `--category` |
+| `transactions reconcile list` | `--account`, `--start`, `--end`, `--limit` |
 | `transactions delete <id>` | `--yes` (required) |
 | `transactions import <acctId> <file>` | See [Import](#importing-transactions) below |
 
@@ -179,6 +181,22 @@ Fill in `category` with category IDs. Apply output: `id`, `category`, `result`.
 Draft shape: `[{ id, date, amount, payee, category, notes, cleared, account, _meta }]`
 
 Amounts are decimal strings. Apply output: `id`, `fields`, `result`.
+
+### transfer
+
+`fscl transactions transfer <fromAcct> <toAcct> --date <YYYY-MM-DD> --amount <decimal> [--notes <text>] [--cleared] [--category <id>]`
+
+Creates a linked transfer using Actual's transfer payee for the destination account. Amount must be positive. The source account gets the outflow and Actual creates the matching destination transaction. Use `--category` only when the transfer crosses the budget boundary and needs a category.
+
+### reconcile draft/apply
+
+`fscl transactions reconcile list [--account <id>] [--start] [--end] [--limit <n>]`
+`fscl transactions reconcile draft [--account <id>] [--start] [--end] [--limit <n>]`
+`fscl transactions reconcile apply [--dry-run]`
+
+Draft shape: `[{ id, cleared, reconciled, _meta: { date, amount, payeeName, accountName, categoryName, notes } }]`
+
+Remove entries that should not be reconciled yet, or set `cleared` / `reconciled` to `false` for exceptions. Apply output: `id`, `cleared`, `reconciled`, `result`.
 
 ## Importing transactions
 

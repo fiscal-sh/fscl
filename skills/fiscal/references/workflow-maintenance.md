@@ -20,7 +20,18 @@ For CSV files with custom columns, see [import-guide.md](import-guide.md). Alway
 fscl rules run --and-commit
 ```
 
-### 3. Clean Up Payees
+### 3. Reconcile Reviewed Transactions
+
+```bash
+fscl transactions reconcile list --json
+fscl transactions reconcile draft
+# Remove entries that are not reviewed yet
+fscl transactions reconcile apply
+```
+
+Use account/date filters for statement work, for example `fscl transactions reconcile draft --account <acct-id> --start <statement-start> --end <statement-end>`.
+
+### 4. Clean Up Payees
 
 Review uncategorized transactions for messy or duplicate payee names:
 
@@ -30,7 +41,7 @@ fscl payees update <id> --name "Clean Name"
 fscl payees merge <target-id> <dup-ids...>
 ```
 
-### 4. Categorize Remaining
+### 5. Categorize Remaining
 
 ```bash
 fscl transactions categorize draft
@@ -39,7 +50,7 @@ fscl transactions categorize draft
 fscl transactions categorize apply
 ```
 
-### 5. Create Rules for New Patterns
+### 6. Create Rules for New Patterns
 
 Any payee appearing 2+ times with the same category should get a rule. See [rules.md](rules.md).
 
@@ -50,7 +61,7 @@ fscl rules apply
 fscl rules run --and-commit
 ```
 
-### 6. Review Budget
+### 7. Review Budget
 
 ```bash
 fscl month status --compare 3 --json
@@ -63,7 +74,7 @@ Lead with what matters:
 3. "To Budget" amount
 4. Trends compared to previous months
 
-### 7. Adjust Budget
+### 8. Adjust Budget
 
 Move money between categories to cover overages:
 
@@ -80,7 +91,7 @@ fscl month draft <month>
 fscl month apply <month>
 ```
 
-### 8. New Month Setup
+### 9. New Month Setup
 
 ```bash
 # Apply templates if configured
@@ -137,6 +148,17 @@ Present a summary:
 2. Calculate monthly contribution: goal amount / months
 3. Budget it: `fscl month set <month> <vacation-id> 300.00`
 4. Track and report progress each month: "You've saved $900 of $3,000 (30%). At $300/month, you'll reach it by November."
+
+### "Move money between accounts"
+
+Use a linked transfer, not two standalone transactions:
+
+```bash
+fscl transactions transfer <from-acct-id> <to-acct-id> --date <date> --amount 500.00 \
+  --notes "Savings transfer"
+```
+
+Use a positive amount. Add `--category <id>` only for transfers that cross the budget boundary and need category treatment.
 
 ### "I returned something"
 

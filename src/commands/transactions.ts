@@ -52,6 +52,14 @@ type AddOptions = {
   cleared?: boolean;
 };
 
+type TransferOptions = {
+  date: string;
+  amount: string;
+  notes?: string;
+  cleared?: boolean;
+  category?: string;
+};
+
 type ImportOptions = {
   reconcile?: boolean;
   dryRun?: boolean;
@@ -109,6 +117,18 @@ const EditDraftSchema = z.array(EditDraftEntrySchema).min(
   'Draft must contain at least one entry',
 );
 
+const ReconcileDraftEntrySchema = z.object({
+  id: z.string().min(1, 'Transaction ID is required'),
+  cleared: z.boolean().optional().default(true),
+  reconciled: z.boolean().optional().default(true),
+  _meta: z.record(z.string(), z.unknown()).optional(),
+});
+
+const ReconcileDraftSchema = z.array(ReconcileDraftEntrySchema).min(
+  1,
+  'Draft must contain at least one entry',
+);
+
 type DeleteOptions = {
   yes?: boolean;
 };
@@ -117,6 +137,13 @@ type UncategorizedOptions = {
   account?: string;
   start?: string;
   end?: string;
+};
+
+type ReconcileOptions = {
+  account?: string;
+  start?: string;
+  end?: string;
+  limit?: string;
 };
 
 const TRANSACTION_COLUMNS = [
@@ -211,6 +238,69 @@ async function queryUncategorizedCount(accountId?: string): Promise<number> {
   const result = await api.aqlQuery(query as Parameters<typeof api.aqlQuery>[0]);
   const rows = ((result as { data?: unknown }).data ?? []) as Array<{ count?: unknown }>;
   return toNumber(rows[0]?.count);
+}
+
+function parsePositiveAmount(input: string): number {
+  const amount = parseAmount(input);
+  if (amount <= 0) {
+    throw new Error('Amount must be greater than 0');
+  }
+  return amount;
+}
+
+async function findTransferPayeeId(accountId: string): Promise<string> {
+  const payees = (await api.getPayees()) as Array<Record<string, unknown>>;
+  const payee = payees.find(row => row.transfer_acct === accountId);
+  if (typeof payee?.id !== 'string' || !payee.id) {
+    throw new Error(`Transfer payee not found for account '${accountId}'.`);
+  }
+  return payee.id;
+}
+
+function parseLimit(input?: string): number | undefined {
+  if (input == null) {
+    return undefined;
+  }
+  const limit = Number(input);
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw new Error(`Invalid --limit value: ${input}`);
+  }
+  return limit;
+}
+
+async function fetchUnreconciledTransactions(
+  options: ReconcileOptions,
+): Promise<Array<Record<string, unknown>>> {
+  const resolvedAccount = options.account
+    ? await resolveAccountId(options.account)
+    : undefined;
+  const limit = parseLimit(options.limit);
+
+  let query = api.q('transactions')
+    .filter({ reconciled: false })
+    .select(['*']);
+  if (resolvedAccount) {
+    query = query.filter({ account: resolvedAccount });
+  }
+  if (options.start) {
+    query = query.filter({ date: { $gte: asDate(options.start) } });
+  }
+  if (options.end) {
+    query = query.filter({ date: { $lte: asDate(options.end) } });
+  }
+  query = query.orderBy({ date: 'desc' });
+
+  const result = await api.aqlQuery(
+    query as Parameters<typeof api.aqlQuery>[0],
+  );
+  let rows = ((result as { data?: unknown }).data ?? []) as Array<
+    Record<string, unknown>
+  >;
+  if (limit != null) {
+    rows = rows.slice(0, limit);
+  }
+  await enrichTransactions(rows);
+  return rows;
 }
 
 function mapCategoryId(
@@ -931,6 +1021,223 @@ Amount is a decimal string (e.g. 45.99 for $45.99, -45.99 for -$45.99).`,
             printStatusOk({ entity: 'transaction', action: 'add', accountId: resolvedAccountId });
           },
         );
+      }),
+    );
+
+  transactions
+    .command('transfer <fromAccount> <toAccount>')
+    .requiredOption('--date <yyyy-mm-dd>', 'Transfer date')
+    .requiredOption('--amount <amount>', 'Positive decimal amount')
+    .option('--notes <text>', 'Notes')
+    .option('--cleared', 'Mark as cleared')
+    .option('--category <id>', 'Category id for on-budget/off-budget transfers')
+    .description('Create a linked transfer between accounts')
+    .addHelpText(
+      'after',
+      `
+Example:
+  fiscal transactions transfer Checking Savings --date 2026-02-15 --amount 500.00 --notes "Monthly savings"
+
+Amount must be positive. The source account gets the outflow and Actual creates
+the linked transaction in the destination account using its transfer payee.
+Use --category when a transfer crosses the budget boundary and needs a category.`,
+    )
+    .action(
+      commandAction(async (fromAccount: string, toAccount: string, options: TransferOptions, ...args: unknown[]) => {
+        const cmd = getActionCommand(args);
+        const session = getSessionOptions(cmd);
+        await withBudget(
+          { ...session, write: true },
+          async () => {
+            const fromAccountId = await resolveAccountId(fromAccount);
+            const toAccountId = await resolveAccountId(toAccount);
+            if (fromAccountId === toAccountId) {
+              throw new Error('Transfer accounts must be different');
+            }
+            const transferPayeeId = await findTransferPayeeId(toAccountId);
+            const resolvedCategory = options.category
+              ? await resolveCategoryId(options.category)
+              : undefined;
+            const amount = parsePositiveAmount(options.amount);
+            const ids = (await api.addTransactions(
+              fromAccountId,
+              [
+                {
+                  date: asDate(options.date),
+                  amount: -amount,
+                  payee: transferPayeeId,
+                  category: resolvedCategory,
+                  notes: options.notes,
+                  cleared: Boolean(options.cleared),
+                },
+              ],
+              { runTransfers: true },
+            )) as unknown;
+            const createdIds = Array.isArray(ids) ? ids : [];
+            printStatusOk({
+              entity: 'transfer',
+              action: 'add',
+              from_account: fromAccountId,
+              to_account: toAccountId,
+              amount,
+              id: createdIds[0],
+            });
+          },
+        );
+      }),
+    );
+
+  const reconcile = transactions
+    .command('reconcile')
+    .description('Reconcile transactions using list or draft/apply workflow');
+
+  reconcile
+    .command('list')
+    .option('--account <id>', 'Filter to specific account')
+    .option('--start <yyyy-mm-dd>', 'Start date (inclusive)')
+    .option('--end <yyyy-mm-dd>', 'End date (inclusive)')
+    .option('--limit <n>', 'Maximum rows to include')
+    .description('List unreconciled transactions')
+    .addHelpText(
+      'after',
+      `
+Example:
+  fiscal transactions reconcile list --account Checking --start 2026-02-01
+
+Returns transactions where reconciled=false. Use the draft/apply workflow to
+mark reviewed transactions as cleared and reconciled in bulk.`,
+    )
+    .action(
+      commandAction(async (options: ReconcileOptions, ...args: unknown[]) => {
+        const cmd = getActionCommand(args);
+        const session = getSessionOptions(cmd);
+        const format = getFormat(cmd);
+        await withBudget(session, async () => {
+          const rows = await fetchUnreconciledTransactions(options);
+          printRows(format, 'transactions-reconcile', rows, TRANSACTION_COLUMNS);
+        });
+      }),
+    );
+
+  reconcile
+    .command('draft')
+    .option('--account <id>', 'Filter to specific account')
+    .option('--start <yyyy-mm-dd>', 'Start date (inclusive)')
+    .option('--end <yyyy-mm-dd>', 'End date (inclusive)')
+    .option('--limit <n>', 'Maximum rows to include')
+    .description('Generate a reconcile draft JSON file from unreconciled transactions')
+    .addHelpText(
+      'after',
+      `
+Example:
+  fiscal transactions reconcile draft --account Checking --limit 50
+
+Writes <dataDir>/<budgetId>/drafts/reconcile.json. Remove entries that should
+not be reconciled yet, or set cleared/reconciled to false for exceptions, then
+run:
+  fiscal transactions reconcile apply`,
+    )
+    .action(
+      commandAction(async (options: ReconcileOptions, ...args: unknown[]) => {
+        const cmd = getActionCommand(args);
+        const session = getSessionOptions(cmd);
+        await withBudget(session, async (resolved) => {
+          if (!resolved.budgetId) {
+            throw new Error("No budget selected. Run 'fscl init' or 'fscl budgets use <id>' to select one.");
+          }
+          const rows = await fetchUnreconciledTransactions(options);
+          const draftEntries = rows.map(row => ({
+            id: String(row.id ?? ''),
+            cleared: true,
+            reconciled: true,
+            _meta: {
+              date: String(row.date ?? ''),
+              amount: typeof row.amount === 'number' ? row.amount : 0,
+              payeeName: String(row.payee_name ?? ''),
+              accountName: String(row.account_name ?? ''),
+              categoryName: String(row.category_name ?? ''),
+              notes: String(row.notes ?? ''),
+            },
+          }));
+          const filePath = writeDraft(
+            resolved.dataDir,
+            resolved.budgetId,
+            'reconcile.json',
+            draftEntries,
+          );
+          printStatusOk({
+            entity: 'reconcile-draft',
+            action: 'create',
+            path: filePath,
+            entries: draftEntries.length,
+          });
+        });
+      }),
+    );
+
+  reconcile
+    .command('apply')
+    .option('--dry-run', 'Preview changes without applying')
+    .description('Apply a reconcile draft JSON file')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  fiscal transactions reconcile apply
+  fiscal transactions reconcile apply --dry-run
+
+Reads <dataDir>/<budgetId>/drafts/reconcile.json, validates entries,
+batch-updates cleared/reconciled flags, and deletes the draft on success.`,
+    )
+    .action(
+      commandAction(async (options: { dryRun?: boolean }, ...args: unknown[]) => {
+        const cmd = getActionCommand(args);
+        const session = getSessionOptions(cmd);
+        const format = getFormat(cmd);
+        const dryRun = Boolean(options.dryRun);
+        await withBudget({ ...session, write: !dryRun }, async (resolved) => {
+          if (!resolved.budgetId) {
+            throw new Error("No budget selected. Run 'fscl init' or 'fscl budgets use <id>' to select one.");
+          }
+          const result = readDraft(
+            resolved.dataDir,
+            resolved.budgetId,
+            'reconcile.json',
+            ReconcileDraftSchema,
+          );
+          if (!result.ok) {
+            printDraftValidationErrors('reconcile-draft', result.errors);
+            process.exitCode = 1;
+            return;
+          }
+          const updates = result.data.map(entry => ({
+            id: entry.id,
+            cleared: entry.cleared,
+            reconciled: entry.reconciled,
+          }));
+          if (dryRun) {
+            printRows(
+              format,
+              'reconcile-apply',
+              updates.map(entry => ({ ...entry, result: 'would-update' })),
+              ['id', 'cleared', 'reconciled', 'result'],
+              { dryRun: 1, entries: updates.length },
+            );
+            return;
+          }
+          const batchResult = (await send('transactions-batch-update', {
+            updated: updates,
+          })) as { updated?: unknown[] };
+          const updatedCount = batchResult.updated?.length ?? 0;
+          deleteDraft(resolved.dataDir, resolved.budgetId, 'reconcile.json');
+          printRows(
+            format,
+            'reconcile-apply',
+            updates.map(entry => ({ ...entry, result: 'updated' })),
+            ['id', 'cleared', 'reconciled', 'result'],
+            { updated: updatedCount },
+          );
+        });
       }),
     );
 
