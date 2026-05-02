@@ -41,25 +41,8 @@ fscl accounts create "Chase Credit 5736" --balance -35.00
 4. Pay the statement balance as a linked transfer from checking:
 
 ```bash
-# Add/import the payment on checking
-fscl transactions add <checking-acct-id> --date 2026-02-15 --amount -213.15 \
-  --payee "CHASE PAYMENT" --notes "Statement payment"
-
-# Convert matching entries into linked transfers by setting payee to the transfer payee
-# (find <chase-transfer-payee-id> via "fscl payees list", where transfer_acct=<chase-acct-id>)
-fscl rules create '{
-  "stage": null,
-  "conditionsOp": "and",
-  "conditions": [
-    {"field": "account", "op": "is", "value": "<checking-acct-id>"},
-    {"field": "imported_payee", "op": "contains", "value": "CHASE PAYMENT"}
-  ],
-  "actions": [
-    {"field": "payee", "op": "set", "value": "<chase-transfer-payee-id>"}
-  ]
-}'
-fscl rules run --dry-run
-fscl rules run
+fscl transactions transfer <checking-acct-id> <chase-acct-id> \
+  --date 2026-02-15 --amount 213.15 --notes "Statement payment"
 ```
 
 ## Strategy: Carrying Debt
@@ -124,23 +107,8 @@ fscl transactions add <citi-acct-id> --date 2026-02-10 --amount -64.00 \
 4. Make the payment as a linked transfer from checking:
 
 ```bash
-fscl transactions add <checking-acct-id> --date 2026-02-15 --amount -290.00 \
-  --payee "CITIBANK PAYMENT" --notes "CC payment"
-
-# Rule converts payee text to the card transfer payee ID
-fscl rules create '{
-  "stage": null,
-  "conditionsOp": "and",
-  "conditions": [
-    {"field": "account", "op": "is", "value": "<checking-acct-id>"},
-    {"field": "imported_payee", "op": "contains", "value": "CITIBANK PAYMENT"}
-  ],
-  "actions": [
-    {"field": "payee", "op": "set", "value": "<citi-transfer-payee-id>"}
-  ]
-}'
-fscl rules run --dry-run
-fscl rules run
+fscl transactions transfer <checking-acct-id> <citi-acct-id> \
+  --date 2026-02-15 --amount 290.00 --notes "CC payment"
 ```
 
 ### Monthly workflow (card with debt AND new purchases)

@@ -10,6 +10,7 @@ Gather the full picture:
 fscl accounts list --json
 fscl categories list --json
 fscl transactions uncategorized --json
+fscl transactions reconcile list --json
 fscl payees stats --extended --json
 fscl rules list --json
 fscl month status --json
@@ -19,6 +20,7 @@ Assess and report to the user:
 - How many accounts? Are balances reasonable?
 - How many categories? Any duplicates or obvious gaps?
 - How many uncategorized transactions?
+- How many unreconciled transactions?
 - How many payees? Are there messy bank names?
 - Any rules already set up?
 - Current budget status — is money allocated?
@@ -100,7 +102,19 @@ fscl rules create '{
 
 See [rules.md](rules.md) for the full schema (conditions, actions, stages).
 
-## Step 6: Review Budget Amounts
+## Step 6: Reconcile Reviewed Transactions
+
+If `transactions.unreconciled > 0`, reconcile reviewed transactions in batches:
+
+```bash
+fscl transactions reconcile draft --limit 50
+# Remove entries that are not reviewed yet
+fscl transactions reconcile apply
+```
+
+Use `--account`, `--start`, and `--end` when matching a bank statement.
+
+## Step 7: Review Budget Amounts
 
 Compare actual spending to budgeted amounts:
 
@@ -112,7 +126,7 @@ Suggest adjustments for categories that are consistently over or under budget.
 
 If the budget has no amounts set for the current month, offer to set them up using the approach in [workflow-onboarding.md](workflow-onboarding.md) Step 4.
 
-## Step 7: Credit Card Check
+## Step 8: Credit Card Check
 
 If any accounts have negative balances (credit cards), verify the setup:
 - **Paying in full monthly?** No special setup needed — purchases use regular expense categories.
