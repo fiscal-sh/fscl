@@ -52,12 +52,15 @@ const RuleConditionSchema = z.object({
   field: z.string().min(1, 'condition.field is required'),
   op: z.string().min(1, 'condition.op is required'),
   value: z.unknown(),
+  type: z.unknown().optional(),
 }).strict();
 
 const RuleActionSchema = z.object({
   field: z.string().min(1, 'action.field is required'),
   op: z.string().min(1, 'action.op is required'),
   value: z.unknown(),
+  type: z.unknown().optional(),
+  options: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
 const RuleInputSchema = z.object({
@@ -149,11 +152,30 @@ function normalizeRulePayload(
   conditions: unknown[];
   actions: unknown[];
 } {
+  const conditions = Array.isArray(rule.conditions)
+    ? rule.conditions.map(condition => {
+      if (!condition || typeof condition !== 'object') {
+        return condition;
+      }
+      const { type: _type, ...rest } = condition as Record<string, unknown>;
+      return rest;
+    })
+    : [];
+  const actions = Array.isArray(rule.actions)
+    ? rule.actions.map(action => {
+      if (!action || typeof action !== 'object') {
+        return action;
+      }
+      const { type: _type, ...rest } = action as Record<string, unknown>;
+      return rest;
+    })
+    : [];
+
   return {
     stage: rule.stage === 'pre' || rule.stage === 'post' ? rule.stage : null,
     conditionsOp: normalizeConditionsOp(rule.conditionsOp),
-    conditions: Array.isArray(rule.conditions) ? rule.conditions : [],
-    actions: Array.isArray(rule.actions) ? rule.actions : [],
+    conditions,
+    actions,
   };
 }
 

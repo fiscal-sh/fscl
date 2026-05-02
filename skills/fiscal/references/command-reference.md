@@ -414,14 +414,14 @@ Use exactly one of `--module` or `--inline`. Module can export `default (q) => q
 
 ## Draft/apply workflow
 
-Six commands support draft/apply: **categories**, **categorize**, **edit**, **rules**, **month**, **templates**.
+Seven workflows support draft/apply: **categories**, **transactions categorize**, **transactions edit**, **transactions reconcile**, **rules**, **month**, **month templates**.
 
-1. `<command> draft [filters]` — generates JSON at `<dataDir>/<budgetId>/drafts/`
-2. Edit the JSON file
-3. `<command> apply --dry-run` — preview changes
-4. `<command> apply` — commit (deletes draft on success)
+1. Run the exact draft command for the workflow — it generates JSON at `<dataDir>/<budgetId>/drafts/` and returns the file `path`.
+2. Edit the JSON file at the returned `path`.
+3. Run the matching apply command with `--dry-run` to preview changes.
+4. Run the matching apply command without `--dry-run` to commit. The draft is deleted on success.
 
-Never hand-create a draft file by path. Generate it with `<command> draft`, then edit that generated file.
+Never hand-create a draft file by path. Generate it with the draft command, then edit that generated file.
 
 ## Exit codes
 
