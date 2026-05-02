@@ -42,7 +42,7 @@
   "author": "benbjurstrom",
   "license": "MIT",
   "dependencies": {
-    "@actual-app/api": "^26.2.0",
+    "@actual-app/api": "26.4.0",
     "@clack/prompts": "^1.0.1",
     "commander": "^13.1.0",
     "csv-parse": "^5.6.0",

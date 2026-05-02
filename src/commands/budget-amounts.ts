@@ -1,4 +1,4 @@
-import * as api from '@actual-app/api';
+import { api } from '../actual-api.js';
 import { Command } from 'commander';
 import { z } from 'zod';
 
@@ -149,7 +149,7 @@ Output columns: month (YYYY-MM format)`,
         const format = getFormat(cmd);
         const session = getSessionOptions(cmd);
         await withBudget(session, async () => {
-          const months = await api.getBudgetMonths();
+          const months = (await api.getBudgetMonths()) as string[];
           const rows = months.map(month => ({ month }));
           printRows(format, 'month-list', rows, ['month']);
         });

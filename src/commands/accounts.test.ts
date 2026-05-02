@@ -21,6 +21,7 @@ type AccountRow = {
   name: string;
   offbudget: boolean;
   closed: boolean;
+  balance_current: number;
 };
 
 type AccountListOutput = {
@@ -90,6 +91,7 @@ describe('accounts happy path', () => {
     expect(listed.entity).toBe('accounts');
     expect(listed.count).toBeGreaterThanOrEqual(1);
     expect(listed.data.some(row => row.id === created.id)).toBe(true);
+    expect(listed.data.find(row => row.id === created.id)?.balance_current).toBe(25055);
 
     const findResult = runCli(
       ['--data-dir', testEnv.dataDir, '--json', 'accounts', 'find', 'check'],
@@ -103,5 +105,6 @@ describe('accounts happy path', () => {
     expect(found.query).toBe('check');
     expect(found.matches).toBeGreaterThanOrEqual(1);
     expect(found.data.some(row => row.id === created.id)).toBe(true);
+    expect(found.data.find(row => row.id === created.id)?.balance_current).toBe(25055);
   }, 20000);
 });

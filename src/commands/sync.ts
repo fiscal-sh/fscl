@@ -1,4 +1,4 @@
-import * as api from '@actual-app/api';
+import { api } from '../actual-api.js';
 import { Command } from 'commander';
 
 import { commandAction, getSessionOptions } from '../cli.js';

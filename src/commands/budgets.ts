@@ -1,4 +1,4 @@
-import * as api from '@actual-app/api';
+import { api } from '../actual-api.js';
 import * as p from '@clack/prompts';
 import { Command } from 'commander';
 
@@ -11,6 +11,7 @@ import {
   budgetRowsForList,
   getActionCommand,
   requireYes,
+  send,
 } from './common.js';
 import {
   collectBudgetSetup,
@@ -173,7 +174,7 @@ export function registerBudgetCommands(program: Command) {
                 ErrorCodes.SERVER_REQUIRED,
               );
             }
-            const result = await api.internal.send('upload-budget', undefined);
+            const result = await send('upload-budget', undefined);
             const maybeError = (result as { error?: { reason?: string } })
               ?.error;
             if (maybeError) {
@@ -225,7 +226,7 @@ export function registerBudgetCommands(program: Command) {
             );
           }
 
-          const result = await api.internal.send('delete-budget', { id });
+          const result = await send('delete-budget', { id });
           if (result !== 'ok') {
             throw new Error(`Failed to delete budget '${id}'.`);
           }

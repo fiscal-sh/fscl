@@ -1,4 +1,4 @@
-import * as api from '@actual-app/api';
+import { api } from '../actual-api.js';
 import { Command } from 'commander';
 import { z } from 'zod';
 
@@ -41,6 +41,22 @@ type AccountDeleteOptions = {
   yes?: boolean;
 };
 
+async function withCurrentBalances(
+  rows: Array<Record<string, unknown>>,
+): Promise<Array<Record<string, unknown>>> {
+  return Promise.all(
+    rows.map(async row => {
+      if (typeof row.id !== 'string') {
+        return row;
+      }
+      return {
+        ...row,
+        balance_current: await api.getAccountBalance(row.id),
+      };
+    }),
+  );
+}
+
 const AccountBatchEntrySchema = z.object({
   name: z.string().trim().min(1, 'name is required'),
   offbudget: z.boolean().optional(),
@@ -64,7 +80,9 @@ export function registerAccountCommands(program: Command) {
         const format = getFormat(cmd);
         const session = getSessionOptions(cmd);
         await withBudget(session, async () => {
-          const rows = await api.getAccounts();
+          const rows = await withCurrentBalances(
+            (await api.getAccounts()) as Array<Record<string, unknown>>,
+          );
           printRows(format, 'accounts', rows as Record<string, unknown>[], [
             'id',
             'name',
@@ -92,11 +110,12 @@ export function registerAccountCommands(program: Command) {
             throw new Error('Name search must be non-empty');
           }
           const all = (await api.getAccounts()) as Array<Record<string, unknown>>;
-          const rows = all.filter(row => {
+          const matchedRows = all.filter(row => {
             if (typeof row.name !== 'string') return false;
             const lower = row.name.toLowerCase();
             return needles.some(needle => lower.includes(needle));
           });
+          const rows = await withCurrentBalances(matchedRows);
           printRows(format, 'accounts-find', rows, [
             'id',
             'name',
