@@ -1,7 +1,7 @@
 import { stdin, stdout } from 'node:process';
 import { mkdirSync } from 'node:fs';
 
-import * as api from '@actual-app/api';
+import { api } from '../actual-api.js';
 import * as p from '@clack/prompts';
 
 import { loginToServer } from '../auth.js';

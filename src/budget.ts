@@ -1,8 +1,9 @@
 import { mkdirSync } from 'node:fs';
 
-import * as api from '@actual-app/api';
+import { api } from './actual-api.js';
 
 import { CliError, ErrorCodes } from './cli.js';
+import { send, setActiveInternalApi } from './commands/common.js';
 import { getDefaultDataDir, readConfig } from './config.js';
 import type {
   ResolvedSessionOptions,
@@ -19,8 +20,17 @@ const AGENT_FEATURE_DEFAULTS: ReadonlyArray<{ id: string; value: 'true' | 'false
   { id: 'flags.customThemes', value: 'false' },
 ];
 
+async function tryAutoSync(): Promise<void> {
+  try {
+    await api.sync();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Warning: automatic sync failed after local changes were saved: ${message}`);
+  }
+}
+
 async function ensureAgentFeatureDefaults(): Promise<boolean> {
-  const prefs = (await api.internal.send('preferences/get', undefined)) as
+  const prefs = (await send('preferences/get', undefined)) as
     | Record<string, unknown>
     | undefined;
 
@@ -29,7 +39,7 @@ async function ensureAgentFeatureDefaults(): Promise<boolean> {
     if (prefs?.[feature.id] === feature.value) {
       continue;
     }
-    await api.internal.send('preferences/save', {
+    await send('preferences/save', {
       id: feature.id,
       value: feature.value,
     });
@@ -72,23 +82,24 @@ export async function withApi<T>(
     throw new CliError("Not logged in. Run 'fscl login' to authenticate.", ErrorCodes.NOT_LOGGED_IN);
   }
 
-  const initConfig = resolved.serverURL
+  const initConfig: Record<string, unknown> = resolved.serverURL
     ? ({
         dataDir: resolved.dataDir,
         verbose: false,
         serverURL: resolved.serverURL,
         ...(resolved.token ? { sessionToken: resolved.token } : {}),
-      } as Parameters<typeof api.init>[0])
+      })
     : ({
         dataDir: resolved.dataDir,
         verbose: false,
-      } as Parameters<typeof api.init>[0]);
+      });
 
-  await api.init(initConfig);
+  setActiveInternalApi(await api.init(initConfig));
 
   try {
     return await fn(resolved);
   } finally {
+    setActiveInternalApi(null);
     await api.shutdown();
   }
 }
@@ -111,9 +122,9 @@ export async function withBudget<T>(
       return await fn(resolved);
     } finally {
       if (resolved.write && resolved.serverURL) {
-        await api.sync();
+        await tryAutoSync();
       } else if (updatedFeatureDefaults && resolved.serverURL) {
-        await api.sync();
+        await tryAutoSync();
       }
     }
   });

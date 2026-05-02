@@ -23,6 +23,13 @@ describe('cli help', () => {
     expect(result.stdout).toContain('budgets');
   });
 
+  it('prints version without loading a budget', () => {
+    const result = runCli(['--version'], undefined, testEnv.env);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
   it('prints subcommand help with global options', () => {
     const result = runCli(['status', '--help'], undefined, testEnv.env);
 

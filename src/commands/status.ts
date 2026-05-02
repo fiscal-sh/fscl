@@ -1,4 +1,4 @@
-import * as api from '@actual-app/api';
+import { api } from '../actual-api.js';
 import { Command } from 'commander';
 
 import { isAuthError } from '../auth.js';
@@ -7,7 +7,7 @@ import { withApi } from '../budget.js';
 import { getConfigPath, readConfig } from '../config.js';
 import { printObject, printRowsTable } from '../output.js';
 import type { OutputFormat } from '../types.js';
-import { budgetRows, getActionCommand } from './common.js';
+import { budgetRows, getActionCommand, send } from './common.js';
 
 const STATUS_PAIR_FIELDS: ReadonlyArray<{ key: string; field: string }> = [
   { key: 'config.path', field: 'config_path' },
@@ -407,7 +407,7 @@ async function collectBudgetMetrics(
   try {
     await api.loadBudget(session.budgetId);
     row.budget_loaded = 1;
-    const prefs = (await api.internal.send('preferences/get', undefined)) as
+    const prefs = (await send('preferences/get', undefined)) as
       | Record<string, unknown>
       | undefined;
     row.budget_type = (prefs?.budgetType as string) ?? 'envelope';

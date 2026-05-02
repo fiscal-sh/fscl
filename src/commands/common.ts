@@ -1,14 +1,26 @@
-import * as api from '@actual-app/api';
+import { api } from '../actual-api.js';
 import type { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import type { z } from 'zod';
 import { CliError, ErrorCodes } from '../cli.js';
 
-export const send = (
-  api.internal as unknown as {
-    send: (name: string, args?: unknown) => Promise<unknown>;
+type ActualInternalApi = {
+  send: (name: string, args?: unknown) => Promise<unknown>;
+};
+
+let activeInternalApi: ActualInternalApi | null = null;
+
+export function setActiveInternalApi(internal: unknown): void {
+  activeInternalApi = internal as ActualInternalApi | null;
+}
+
+export function send(name: string, args?: unknown): Promise<unknown> {
+  const internal = activeInternalApi ?? (api.internal as unknown as ActualInternalApi | null);
+  if (!internal) {
+    throw new Error('Actual internal API is unavailable before api.init()');
   }
-).send;
+  return internal.send(name, args);
+}
 
 export type BudgetRow = {
   id?: string;
