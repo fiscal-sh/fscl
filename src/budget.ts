@@ -5,6 +5,10 @@ import { api, type ActualInitConfig } from './actual-api.js';
 import { CliError, ErrorCodes } from './cli.js';
 import { send, setActiveInternalApi } from './commands/common.js';
 import { getDefaultDataDir, readConfig } from './config.js';
+import {
+  assertBetterSqliteAvailable,
+  normalizeNativeDependencyError,
+} from './native-deps.js';
 import type {
   ResolvedSessionOptions,
   SessionOptions,
@@ -82,6 +86,8 @@ export async function withApi<T>(
     throw new CliError("Not logged in. Run 'fscl login' to authenticate.", ErrorCodes.NOT_LOGGED_IN);
   }
 
+  assertBetterSqliteAvailable();
+
   const initConfig: ActualInitConfig = resolved.serverURL
     ? ({
         dataDir: resolved.dataDir,
@@ -116,7 +122,11 @@ export async function withBudget<T>(
       );
     }
 
-    await api.loadBudget(resolved.budgetId);
+    try {
+      await api.loadBudget(resolved.budgetId);
+    } catch (error) {
+      throw normalizeNativeDependencyError(error);
+    }
     const updatedFeatureDefaults = await ensureAgentFeatureDefaults();
     try {
       return await fn(resolved);
