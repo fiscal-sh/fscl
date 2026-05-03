@@ -1,6 +1,6 @@
 {
   "name": "fscl",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "Headless CLI for Actual Budget",
   "type": "module",
   "main": "dist/index.js",
@@ -44,6 +44,7 @@
   "dependencies": {
     "@actual-app/api": "26.4.0",
     "@clack/prompts": "^1.0.1",
+    "better-sqlite3": "^12.6.2",
     "commander": "^13.1.0",
     "csv-parse": "^5.6.0",
     "date-fns": "^4.1.0",
