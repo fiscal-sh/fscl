@@ -28,6 +28,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "prepare": "[ -d src ] && tsup || true",
     "dev": "tsx src/index.ts",
     "check": "tsc --noEmit",
     "test": "vitest"
@@ -42,9 +43,9 @@
   "author": "benbjurstrom",
   "license": "MIT",
   "dependencies": {
-    "@actual-app/api": "26.4.0",
+    "@actual-app/api": "26.5.2",
     "@clack/prompts": "^1.0.1",
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "^12.10.0",
     "commander": "^13.1.0",
     "csv-parse": "^5.6.0",
     "date-fns": "^4.1.0",
