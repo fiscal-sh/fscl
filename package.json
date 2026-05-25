@@ -28,6 +28,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "prepare": "[ -d src ] && tsup || true",
     "dev": "tsx src/index.ts",
     "check": "tsc --noEmit",
     "test": "vitest"
