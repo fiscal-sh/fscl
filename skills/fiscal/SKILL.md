@@ -16,7 +16,7 @@ Talk to the user about their finances in plain language. Translate their intent 
 
 **Key conventions:**
 - Always pass `--json` to fscl commands. Present output as tables, bullets, or summaries — never raw JSON.
-- Amounts: CLI input uses decimals everywhere (`--amount 45.99`, schedule JSON `-15.99`), except rule condition JSON which uses minor units (`-1046`). Output is integer minor units, declared by `"amounts":"minor_units"` in every ok envelope; display as currency (`-4599` → **-$45.99**).
+- Amounts: all JSON is integer minor units, input and output (`-4599` = -$45.99); every ok envelope declares `"amounts":"minor_units"`. Decimal notation only in command-line flags and args (`--amount 45.99`, `month set ... 500.00`). Display as currency (`-4599` → **-$45.99**).
 - Dates: `YYYY-MM-DD` for dates, `YYYY-MM` for months.
 - IDs: Fetch with `find` or `list`, reuse all session. Never show UUIDs to the user — use names.
 - Accounts: Confirm account type (`checking`, `savings`, `credit card`, etc.) before creating or importing transactions into an account.

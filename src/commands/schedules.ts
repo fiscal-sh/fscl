@@ -23,13 +23,26 @@ const ScheduleAmountOpSchema = z.enum(['is', 'isapprox', 'isbetween'], {
   error: 'Invalid amountOp. Expected: is, isapprox, or isbetween',
 });
 const ScheduleAmountRangeSchema = z.object({
-  num1: z.number().finite('num1 must be a finite decimal number'),
-  num2: z.number().finite('num2 must be a finite decimal number'),
+  num1: z.number(),
+  num2: z.number(),
 }).strict();
-const ScheduleAmountSchema = z.union([
-  z.number().finite('Schedule amount must be a finite decimal number'),
-  ScheduleAmountRangeSchema,
-]);
+const ScheduleAmountSchema = z
+  .union([z.number(), ScheduleAmountRangeSchema])
+  .superRefine((value, ctx) => {
+    const entries: Array<[string, number]> =
+      typeof value === 'number'
+        ? [['amount', value]]
+        : [['num1', value.num1], ['num2', value.num2]];
+    for (const [label, amount] of entries) {
+      if (!Number.isFinite(amount) || Number.isInteger(amount)) {
+        continue;
+      }
+      ctx.addIssue({
+        code: 'custom',
+        message: `${label} must be integer minor units, not decimals. Use ${Math.round(amount * 100)} instead of ${amount}.`,
+      });
+    }
+  });
 const ScheduleDateSchema = z.record(z.string(), z.unknown()).refine(
   value => Object.keys(value).length > 0,
   { message: 'date must be a non-empty recurrence object' },
@@ -100,39 +113,20 @@ const ScheduleAmountStateSchema = z.object({
 
 type ScheduleFields = z.infer<typeof ScheduleFieldsSchema>;
 
-/**
- * Convert decimal-dollar amounts to integer minor units and validate amountOp.
- * The Actual API builds the schedule's backing rule directly from these fields;
- * an absent or invalid amountOp produces a corrupt rule that fails to load.
- */
-function normalizeScheduleAmountFields(
-  payload: ScheduleFields,
-): Record<string, unknown> {
-  const next = { ...payload };
-  if (next.amount !== undefined) {
-    const amount = next.amount;
-    if (typeof amount === 'number') {
-      next.amount = api.utils.amountToInteger(amount);
-    } else {
-      next.amount = {
-        num1: api.utils.amountToInteger(amount.num1),
-        num2: api.utils.amountToInteger(amount.num2),
-      };
-    }
-  }
-  return next;
-}
-
+// Amounts are integer minor units end to end (validated by the zod schemas);
+// the Actual API builds the schedule's backing rule directly from these
+// fields, and an absent or invalid amountOp produces a corrupt rule that
+// fails to load, so create defaults the operator explicitly.
 function normalizeScheduleCreatePayload(
   payload: ScheduleFields,
 ): Record<string, unknown> {
   const amount = payload.amount ?? 0;
-  return normalizeScheduleAmountFields({
+  return {
     ...payload,
     amount,
     amountOp: payload.amountOp ??
       (typeof amount === 'object' ? 'isbetween' : 'isapprox'),
-  });
+  };
 }
 
 function assertValidStoredAmountState(
@@ -729,11 +723,11 @@ entries are used as a read-only fallback until the schedule is reviewed again.`,
       'after',
       `
 Example:
-  fiscal schedules create '{"name":"Netflix","account":"acct-id","payee":"payee-id","amount":-15.99,"date":{"frequency":"monthly","start":"2025-07-01","interval":1}}'
+  fiscal schedules create '{"name":"Netflix","account":"acct-id","payee":"payee-id","amount":-1599,"date":{"frequency":"monthly","start":"2025-07-01","interval":1}}'
 
 Required fields: account, payee, date.
-amount is in decimal currency units (-15.99 = an outflow of 15.99), matching
-the rest of the CLI's input convention. amountOp defaults to "isapprox"
+amount is in integer minor units (-1599 = an outflow of $15.99), matching the
+JSON output convention. amountOp defaults to "isapprox"
 (valid: is, isapprox, isbetween; isbetween takes {"num1":..,"num2":..}).
 
 See Actual Budget docs for the full schedule/recurrence schema.`,
@@ -768,9 +762,9 @@ See Actual Budget docs for the full schedule/recurrence schema.`,
       'after',
       `
 Example:
-  fiscal schedules update sch-abc123 '{"amount":-16.99}'
+  fiscal schedules update sch-abc123 '{"amount":-1699}'
 
-amount is in decimal currency units (-16.99 = an outflow of 16.99). If the
+amount is in integer minor units (-1699 = an outflow of $16.99). If the
 update changes amount or amountOp, the resulting pair must remain valid:
 "isbetween" requires a range; "is" and "isapprox" require a scalar.`,
     )
@@ -778,12 +772,10 @@ update changes amount or amountOp, the resulting pair must remain valid:
       commandAction(async (id: string, fieldsJson: string, ...args: unknown[]) => {
         const cmd = getActionCommand(args);
         const session = getSessionOptions(cmd);
-        const fields = normalizeScheduleAmountFields(
-          parseJsonWithSchema(
-            fieldsJson,
-            ScheduleUpdateSchema,
-            'schedule update payload',
-          ),
+        const fields = parseJsonWithSchema(
+          fieldsJson,
+          ScheduleUpdateSchema,
+          'schedule update payload',
         );
         await withBudget(
           { ...session, write: true },

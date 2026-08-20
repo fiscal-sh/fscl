@@ -34,11 +34,12 @@ Authentication uses a session token saved by `fscl login` (`config.token`). If a
 
 Default: human-readable tables. `--json` for machine-readable output. Agents should always use `--json`.
 
-Amounts in output are **integer minor units** (`-4599` = -$45.99 for a
-two-decimal currency). Every successful JSON envelope declares
-`"amounts": "minor_units"`. Amounts in flags, draft files, and editable
-schedule JSON use decimal notation (`--amount -45.99`). The one input
-exception is rule condition JSON, which uses minor units (e.g. `-1046`).
+Amounts are **integer minor units** (`-4599` = -$45.99 for a two-decimal
+currency) in all JSON, both input and output: draft files, schedule JSON,
+rule JSON, and `create-batch` payloads. Every successful JSON envelope
+declares `"amounts": "minor_units"`, and a `list` or `draft` value can be fed
+back to `update` or `apply` unchanged. Decimal notation is used only in
+command-line flags and args (`--amount -45.99`).
 
 **Row responses** (list, query, report commands):
 
@@ -163,7 +164,7 @@ Remote operations require a valid login token (`fscl login`).
 | `accounts list` | |
 | `accounts find <names...>` | Case-insensitive substring, OR-matched |
 | `accounts create <name>` | `--offbudget`, `--balance <decimal>` |
-| `accounts create-batch <json>` | Array of `{name, offbudget?, balance?}` |
+| `accounts create-batch <json>` | Array of `{name, offbudget?, balance?}`; `balance` in integer minor units |
 | `accounts update <id>` | `--name`, `--offbudget` / `--no-offbudget` |
 | `accounts close <id>` | `--transfer-to <acctId>`, `--transfer-category <catId>` |
 | `accounts reopen <id>` | |
@@ -202,7 +203,7 @@ Fill in `category` with category IDs. Apply output: `id`, `category`, `result`.
 
 Draft shape: `[{ id, date, amount, payee, category, notes, cleared, account, _meta }]`
 
-Amounts are decimal strings. Apply compares the draft with live rows and sends
+Amounts are integer minor units. Apply compares the draft with live rows and sends
 only fields that changed. It refuses payee changes on linked transfers because
 Actual would delete the counterpart; use `--include-transfers` only when that
 destructive unlink is intentional. Apply output: `id`, `fields`, `result`.
@@ -307,7 +308,7 @@ Parse → Normalize (date format, multiplier, flip) → Reconcile (rules + dedup
 `fscl month draft <month>`
 `fscl month apply <month> [--dry-run]`
 
-Draft shape: `[{ categoryId, group, name, amount }]`. Only `categoryId` and `amount` (decimal string) are used on apply.
+Draft shape: `[{ categoryId, group, name, amount }]`. Only `categoryId` and `amount` (integer minor units) are used on apply.
 
 ### month templates
 
@@ -396,8 +397,8 @@ See [rules.md](rules.md) for JSON schema, stages, conditions, and actions.
 | `schedules history <id>` | `--limit <n>` (default: 12) |
 | `schedules review <id> <json>` | `{decision, note?, cadenceMonths?}` |
 | `schedules reviews` | `--due` (only unreviewed/due) |
-| `schedules create <json>` | Requires `account`, `payee`, `date`. `amount` in decimals (`-15.99`); `amountOp` defaults to `isapprox` |
-| `schedules update <id> <json>` | `amount` in decimals; the resulting amount/operator pair must remain valid (`isbetween` = range, `is`/`isapprox` = scalar) |
+| `schedules create <json>` | Requires `account`, `payee`, `date`. `amount` in integer minor units (`-1599`); `amountOp` defaults to `isapprox` |
+| `schedules update <id> <json>` | `amount` in integer minor units; the resulting amount/operator pair must remain valid (`isbetween` = range, `is`/`isapprox` = scalar) |
 | `schedules delete <id>` | `--yes` (required) |
 
 List columns: `id`, `name`, `posts_transaction`, `next_date`, `amount`, `amount_op`, `account`, `account_name`, `payee`, `payee_name`, `date`

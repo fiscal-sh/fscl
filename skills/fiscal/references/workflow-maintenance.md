@@ -208,8 +208,8 @@ store subscription metadata (renewal dates, keep/cancel decisions, review
 cadence):
 
 ```bash
-# One schedule per recurring charge. amount is decimal currency units.
-fscl schedules create '{"name":"Netflix","account":"<acct-id>","payee":"<payee-id>","amount":-15.99,"date":{"frequency":"monthly","start":"2026-01-01","interval":1}}'
+# One schedule per recurring charge. amount is integer minor units.
+fscl schedules create '{"name":"Netflix","account":"<acct-id>","payee":"<payee-id>","amount":-1599,"date":{"frequency":"monthly","start":"2026-01-01","interval":1}}'
 
 # Subscription dashboard: per-schedule and total monthly/annual burn
 fscl schedules summary --json
