@@ -4,10 +4,11 @@ import { z } from 'zod';
 
 import { commandAction, getFormat, getSessionOptions } from '../cli.js';
 import { withBudget } from '../budget.js';
+import { todayLocalDateString } from '../dates.js';
 import {
-  readMetadata,
+  readScheduleReviews,
   ScheduleReviewInputSchema,
-  upsertScheduleReview,
+  writeScheduleReview,
 } from '../metadata.js';
 import { printRows, printStatusOk } from '../output.js';
 import {
@@ -18,15 +19,134 @@ import {
   requireYes,
 } from './common.js';
 
-const ScheduleCreateSchema = z.record(z.string(), z.unknown()).refine(
+const ScheduleAmountOpSchema = z.enum(['is', 'isapprox', 'isbetween'], {
+  error: 'Invalid amountOp. Expected: is, isapprox, or isbetween',
+});
+const ScheduleAmountRangeSchema = z.object({
+  num1: z.number().finite('num1 must be a finite decimal number'),
+  num2: z.number().finite('num2 must be a finite decimal number'),
+}).strict();
+const ScheduleAmountSchema = z.union([
+  z.number().finite('Schedule amount must be a finite decimal number'),
+  ScheduleAmountRangeSchema,
+]);
+const ScheduleDateSchema = z.record(z.string(), z.unknown()).refine(
   value => Object.keys(value).length > 0,
-  { message: 'Schedule payload must be a JSON object' },
+  { message: 'date must be a non-empty recurrence object' },
 );
 
-const ScheduleUpdateSchema = z.record(z.string(), z.unknown()).refine(
+function validateAmountState(
+  amount: number | { num1: number; num2: number },
+  amountOp: z.infer<typeof ScheduleAmountOpSchema>,
+  ctx: z.RefinementCtx,
+): void {
+  const isRange = typeof amount === 'object';
+  if (amountOp === 'isbetween' && !isRange) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['amount'],
+      message: 'amountOp "isbetween" requires amount {"num1":..,"num2":..}',
+    });
+  } else if (amountOp !== 'isbetween' && isRange) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['amount'],
+      message: `amountOp "${amountOp}" requires a scalar amount`,
+    });
+  }
+}
+
+const ScheduleFieldsSchema = z.object({
+  name: z.string().optional(),
+  posts_transaction: z.boolean().optional(),
+  account: z.string().min(1, 'account is required').optional(),
+  payee: z.string().min(1, 'payee is required').optional(),
+  amount: ScheduleAmountSchema.optional(),
+  amountOp: ScheduleAmountOpSchema.optional(),
+  date: ScheduleDateSchema.optional(),
+}).strict();
+
+const ScheduleCreateSchema = ScheduleFieldsSchema.superRefine((value, ctx) => {
+  for (const field of ['account', 'payee', 'date'] as const) {
+    if (value[field] === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [field],
+        message: `${field} is required`,
+      });
+    }
+  }
+  const amount = value.amount ?? 0;
+  const amountOp = value.amountOp ??
+    (typeof amount === 'object' ? 'isbetween' : 'isapprox');
+  validateAmountState(amount, amountOp, ctx);
+});
+
+const ScheduleUpdateSchema = ScheduleFieldsSchema.refine(
   value => Object.keys(value).length > 0,
   { message: 'Schedule update payload must be a non-empty JSON object' },
-);
+).superRefine((value, ctx) => {
+  if (value.amount !== undefined && value.amountOp !== undefined) {
+    validateAmountState(value.amount, value.amountOp, ctx);
+  }
+});
+
+const ScheduleAmountStateSchema = z.object({
+  amount: ScheduleAmountSchema,
+  amountOp: ScheduleAmountOpSchema,
+}).superRefine((value, ctx) => {
+  validateAmountState(value.amount, value.amountOp, ctx);
+});
+
+type ScheduleFields = z.infer<typeof ScheduleFieldsSchema>;
+
+/**
+ * Convert decimal-dollar amounts to integer minor units and validate amountOp.
+ * The Actual API builds the schedule's backing rule directly from these fields;
+ * an absent or invalid amountOp produces a corrupt rule that fails to load.
+ */
+function normalizeScheduleAmountFields(
+  payload: ScheduleFields,
+): Record<string, unknown> {
+  const next = { ...payload };
+  if (next.amount !== undefined) {
+    const amount = next.amount;
+    if (typeof amount === 'number') {
+      next.amount = api.utils.amountToInteger(amount);
+    } else {
+      next.amount = {
+        num1: api.utils.amountToInteger(amount.num1),
+        num2: api.utils.amountToInteger(amount.num2),
+      };
+    }
+  }
+  return next;
+}
+
+function normalizeScheduleCreatePayload(
+  payload: ScheduleFields,
+): Record<string, unknown> {
+  const amount = payload.amount ?? 0;
+  return normalizeScheduleAmountFields({
+    ...payload,
+    amount,
+    amountOp: payload.amountOp ??
+      (typeof amount === 'object' ? 'isbetween' : 'isapprox'),
+  });
+}
+
+function assertValidStoredAmountState(
+  amount: unknown,
+  amountOp: unknown,
+): void {
+  const result = ScheduleAmountStateSchema.safeParse({ amount, amountOp });
+  if (!result.success) {
+    const details = result.error.issues
+      .map(issue => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ');
+    throw new Error(`Invalid schedule amount state: ${details}`);
+  }
+}
 
 const SCHEDULE_COLUMNS = [
   'id',
@@ -79,17 +199,6 @@ function findScheduleById(
     );
   }
   return found;
-}
-
-function toLocalDateString(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function todayLocalDateString(): string {
-  return toLocalDateString(new Date());
 }
 
 function utcMidnightMs(dateStr: string): number | null {
@@ -484,7 +593,8 @@ Example:
 
 Valid decisions: keep, cancel, pause
 cadenceMonths sets how many months until next review (default: 3).
-Reviews are stored in fiscal.json alongside the budget.`,
+Reviews are stored in a structured block in the schedule's synced budget note,
+so they follow the budget across devices and are included in exports.`,
     )
     .action(
       commandAction(async (id: string, reviewJson: string, ...args: unknown[]) => {
@@ -495,7 +605,7 @@ Reviews are stored in fiscal.json alongside the budget.`,
           ScheduleReviewInputSchema,
           'schedule review',
         );
-        await withBudget(session, async resolved => {
+        await withBudget({ ...session, write: true }, async resolved => {
           const allSchedules = (await api.getSchedules()) as Array<
             Record<string, unknown>
           >;
@@ -505,7 +615,7 @@ Reviews are stored in fiscal.json alongside the budget.`,
           const cadence = input.cadenceMonths ?? 3;
           const nextReviewAt = addMonths(today, cadence);
 
-          upsertScheduleReview(resolved.dataDir, resolved.budgetId!, id, {
+          await writeScheduleReview(resolved.dataDir, resolved.budgetId!, id, {
             decision: input.decision,
             reviewedAt: today,
             nextReviewAt,
@@ -537,7 +647,10 @@ Example:
 
 Shows review status for all schedules, joined with live schedule data.
 With --due, only shows schedules that have never been reviewed or whose
-next_review_at has passed.`,
+next_review_at has passed.
+
+Reviews are read from each schedule's synced budget note; legacy fiscal.json
+entries are used as a read-only fallback until the schedule is reviewed again.`,
     )
     .action(
       commandAction(async (options: { due?: boolean }, ...args: unknown[]) => {
@@ -552,8 +665,13 @@ next_review_at has passed.`,
               buildNameMaps(),
             ],
           );
-          const metadata = readMetadata(resolved.dataDir, resolved.budgetId!);
-          const reviews = metadata.scheduleReviews;
+          const reviews = await readScheduleReviews(
+            resolved.dataDir,
+            resolved.budgetId!,
+            allSchedules
+              .map(schedule => schedule.id)
+              .filter((id): id is string => typeof id === 'string' && Boolean(id)),
+          );
 
           let rows = allSchedules.map(s => {
             const review = reviews[String(s.id)];
@@ -611,7 +729,12 @@ next_review_at has passed.`,
       'after',
       `
 Example:
-  fiscal schedules create '{"account":"acct-id","payee":"payee-id","amount":-1599,"date":{"frequency":"monthly","start":"2025-07-01","interval":1}}'
+  fiscal schedules create '{"name":"Netflix","account":"acct-id","payee":"payee-id","amount":-15.99,"date":{"frequency":"monthly","start":"2025-07-01","interval":1}}'
+
+Required fields: account, payee, date.
+amount is in decimal currency units (-15.99 = an outflow of 15.99), matching
+the rest of the CLI's input convention. amountOp defaults to "isapprox"
+(valid: is, isapprox, isbetween; isbetween takes {"num1":..,"num2":..}).
 
 See Actual Budget docs for the full schedule/recurrence schema.`,
     )
@@ -619,10 +742,12 @@ See Actual Budget docs for the full schedule/recurrence schema.`,
       commandAction(async (scheduleJson: string, ...args: unknown[]) => {
         const cmd = getActionCommand(args);
         const session = getSessionOptions(cmd);
-        const schedule = parseJsonWithSchema(
-          scheduleJson,
-          ScheduleCreateSchema,
-          'schedule payload',
+        const schedule = normalizeScheduleCreatePayload(
+          parseJsonWithSchema(
+            scheduleJson,
+            ScheduleCreateSchema,
+            'schedule payload',
+          ),
         );
         await withBudget(
           { ...session, write: true },
@@ -643,20 +768,34 @@ See Actual Budget docs for the full schedule/recurrence schema.`,
       'after',
       `
 Example:
-  fiscal schedules update sch-abc123 '{"amount":-1699}'`,
+  fiscal schedules update sch-abc123 '{"amount":-16.99}'
+
+amount is in decimal currency units (-16.99 = an outflow of 16.99). If the
+update changes amount or amountOp, the resulting pair must remain valid:
+"isbetween" requires a range; "is" and "isapprox" require a scalar.`,
     )
     .action(
       commandAction(async (id: string, fieldsJson: string, ...args: unknown[]) => {
         const cmd = getActionCommand(args);
         const session = getSessionOptions(cmd);
-        const fields = parseJsonWithSchema(
-          fieldsJson,
-          ScheduleUpdateSchema,
-          'schedule update payload',
+        const fields = normalizeScheduleAmountFields(
+          parseJsonWithSchema(
+            fieldsJson,
+            ScheduleUpdateSchema,
+            'schedule update payload',
+          ),
         );
         await withBudget(
           { ...session, write: true },
           async () => {
+            const allSchedules = (await api.getSchedules()) as Array<
+              Record<string, unknown>
+            >;
+            const schedule = findScheduleById(allSchedules, id);
+            assertValidStoredAmountState(
+              fields.amount ?? schedule.amount,
+              fields.amountOp ?? schedule.amountOp,
+            );
             await api.updateSchedule(
               id,
               fields as unknown as Parameters<typeof api.updateSchedule>[1],

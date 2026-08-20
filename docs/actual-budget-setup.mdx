@@ -5,14 +5,14 @@ category: Guides
 sort: 2
 ---
 
-Fiscal enables agents to manage your budget data through the `fscl cli`, but sometimes you want a visual dashboard — charts, graphs, and a calendar view of your transactions. [Actual Budget](https://actualbudget.org/) provides exactly that. This guide walks you through setting up an Actual Budget server and connecting it to Fiscal.
+Fiscal lets agents manage your budget through the `fscl` CLI, but sometimes you want a visual dashboard with charts, graphs, and a calendar view of your transactions. [Actual Budget](https://actualbudget.org/) provides exactly that. This guide walks you through setting up an Actual Budget server and connecting it to Fiscal.
 
 ## Why run a server?
 
 Without a server, Fiscal stores your budget locally and everything works fine. Adding a server gives you:
 
 - **A web dashboard** at `http://localhost:5006` for visual budgeting
-- **Sync** between the CLI and the web UI — changes in either show up in both
+- **Sync** between the CLI and the web UI, so changes in either show up in both
 - **Multi-device access** if you expose the server on your network
 
 ## Start the server
@@ -21,7 +21,7 @@ Without a server, Fiscal stores your budget locally and everything works fine. A
     - This guide assumes you have [Docker](https://docs.docker.com/get-docker/) installed and running.
 </Aside>
 
-With the following command Docker will launch a pre-built image with the full Actual Budget server inside it:
+This command starts the Actual Budget server in Docker:
 
 ```bash
 docker run --pull=always --restart=unless-stopped -d \
@@ -31,21 +31,27 @@ docker run --pull=always --restart=unless-stopped -d \
   actualbudget/actual-server:latest
 ```
 
-Note that the The `-v ~/actual-data:/data` flag persists your data to a directory on your machine — without it, data only exists inside the container and is lost when the container is removed.
+The `-v ~/actual-data:/data` flag saves your data to a directory on your machine. Without it, your data only exists inside the container and is lost when the container is removed.
 
 ## Verify the server is running
+
+The container runs in the background, so check its logs:
+
+```bash
+docker logs actual-budget
+```
 
 You should see output like:
 
 ```bash
-actual_server-1  | Listening on :::5006...
+Listening on :::5006...
 ```
 
 ## Set your password
 
 Open [http://localhost:5006](http://localhost:5006) in your browser. On first visit, Actual Budget asks you to create a password. Enter it and confirm.
 
-There is no username — just a single server-wide password. Keep it safe; there's no recovery flow (though you can reset it with `--reset-password` if you have server access).
+There is no username, just a single server-wide password. Keep it safe. There's no recovery flow, though you can reset it with `--reset-password` if you have server access.
 
 ## Connect Fiscal to the server
 
@@ -79,7 +85,7 @@ Or in `~/.config/fscl/config.json`:
 
 ## Open the dashboard
 
-Navigate to [http://localhost:5006](http://localhost:5006) and log in with your password. You'll see your budget, accounts, transactions, and reports — all synced with what Fiscal manages on the CLI.
+Navigate to [http://localhost:5006](http://localhost:5006) and log in with your password. You'll see your budget, accounts, transactions, and reports, all synced with what Fiscal manages on the CLI.
 
 Changes flow both ways: edits in the web UI appear in `fscl` commands, and CLI changes appear in the dashboard after a sync.
 

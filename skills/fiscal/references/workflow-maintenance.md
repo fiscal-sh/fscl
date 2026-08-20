@@ -20,6 +20,13 @@ For CSV files with custom columns, see [import-guide.md](import-guide.md). Alway
 fscl rules run --and-commit
 ```
 
+Matching transfers are skipped selectively (reported as `skipped_transfers`):
+payee changes would delete the linked half, and category-only changes are
+meaningless when both accounts share on/off-budget status. Category rules still
+apply to the on-budget half of mixed-budget transfers. Do not pass
+`--include-transfers` unless the
+user explicitly accepts destructive unlinking.
+
 ### 3. Reconcile Reviewed Transactions
 
 ```bash
@@ -193,6 +200,31 @@ When fscl's account balance differs from the user's bank balance:
    - **Missing transactions:** Manual entries not recorded — add them with `fscl transactions add`
    - **Wrong amount:** A transaction was entered incorrectly — fix with `fscl transactions edit draft` / `edit apply`
 4. After fixing, verify: `fscl accounts balance <id> --json`
+
+## Subscriptions & Recurring Charges
+
+Track every recurring charge as a schedule — this is the recommended way to
+store subscription metadata (renewal dates, keep/cancel decisions, review
+cadence):
+
+```bash
+# One schedule per recurring charge. amount is decimal currency units.
+fscl schedules create '{"name":"Netflix","account":"<acct-id>","payee":"<payee-id>","amount":-15.99,"date":{"frequency":"monthly","start":"2026-01-01","interval":1}}'
+
+# Subscription dashboard: per-schedule and total monthly/annual burn
+fscl schedules summary --json
+
+# Record a keep/cancel decision with a note and review cadence
+fscl schedules review <id> '{"decision":"cancel","note":"not renewing","cadenceMonths":12}'
+
+# Surface subscriptions that need a decision (unreviewed or review due)
+fscl schedules reviews --due
+```
+
+For a **canceled** subscription, keep its schedule: the schedule showing up in
+`fscl schedules missed` on its renewal date is positive confirmation the
+cancellation worked, while a rogue charge would match the schedule and be
+visible. Delete the schedule only after the first missed renewal confirms it.
 
 ## Proactive Monitoring
 

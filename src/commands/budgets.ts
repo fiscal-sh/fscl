@@ -1,10 +1,13 @@
 import { api } from '../actual-api.js';
 import * as p from '@clack/prompts';
 import { Command } from 'commander';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 import { CliError, ErrorCodes, commandAction, getFormat, getSessionOptions } from '../cli.js';
 import { getDefaultDataDir, readConfig, updateConfig } from '../config.js';
 import { withApi, withBudget } from '../budget.js';
+import { todayLocalDateString } from '../dates.js';
 import { printRows, printStatusOk } from '../output.js';
 import {
   budgetRows,
@@ -193,6 +196,87 @@ export function registerBudgetCommands(program: Command) {
             });
           },
         );
+      }),
+    );
+
+  budgets
+    .command('export [path]')
+    .description('Export the active budget to a zip file')
+    .addHelpText(
+      'after',
+      `
+Example:
+  fiscal budgets export                     # ./<budget-id>-<date>.zip
+  fiscal budgets export ~/backups/my.zip
+
+Writes a full budget export (same format as the Actual UI's "Export budget"),
+suitable for backups or re-import via Actual. When a server is configured,
+the budget is synced before the export is created.`,
+    )
+    .action(
+      commandAction(async (path: string | undefined, ...args: unknown[]) => {
+        const cmd = getActionCommand(args);
+        const session = getSessionOptions(cmd);
+        await withBudget(session, async ({ budgetId, serverURL }) => {
+          if (serverURL) {
+            await api.sync();
+          }
+          const data = await api.exportBudget();
+          const target =
+            path && path.trim()
+              ? path
+              : `${budgetId}-${todayLocalDateString()}.zip`;
+          const resolved = resolve(target);
+          mkdirSync(dirname(resolved), { recursive: true });
+          writeFileSync(resolved, data);
+          printStatusOk({
+            entity: 'budget',
+            action: 'export',
+            id: budgetId,
+            path: resolved,
+            bytes: data.byteLength,
+          });
+        });
+      }),
+    );
+
+  budgets
+    .command('restore <path>')
+    .description('Restore a budget export as a new local budget')
+    .addHelpText(
+      'after',
+      `
+Example:
+  fiscal budgets restore ./backup.zip
+
+Imports an Actual budget zip as a new local budget and selects it as active.
+The existing budget is not overwritten or deleted. Automatic pre-mutation
+snapshots are stored under <dataDir>/<budgetId>/snapshots/.`,
+    )
+    .action(
+      commandAction(async (path: string, ...args: unknown[]) => {
+        const cmd = getActionCommand(args);
+        const session = getSessionOptions(cmd);
+        const resolvedPath = resolve(path);
+        if (!existsSync(resolvedPath)) {
+          throw new CliError(
+            `Budget export not found: ${resolvedPath}`,
+            ErrorCodes.ENTITY_NOT_FOUND,
+          );
+        }
+        await withApi(session, async () => {
+          const restored = await api.importBudget(resolvedPath, {
+            type: 'actual',
+            filename: resolvedPath,
+          });
+          updateConfig({ activeBudgetId: restored.id });
+          printStatusOk({
+            entity: 'budget',
+            action: 'restore',
+            id: restored.id,
+            source: resolvedPath,
+          });
+        });
       }),
     );
 

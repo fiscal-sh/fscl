@@ -93,5 +93,5 @@ describe('payees happy path', () => {
     expect(found.query).toBe('groc');
     expect(found.matches).toBeGreaterThanOrEqual(1);
     expect(found.data.some(row => row.id === created.id)).toBe(true);
-  }, 20000);
+  });
 });

@@ -25,31 +25,34 @@ Every fscl command with flags and output columns.
 Authentication uses a session token saved by `fscl login` (`config.token`). If a server is configured and no valid token is available, commands return:
 
 ```json
-{ "status": "err", "message": "Not logged in. Run 'fscl login' to authenticate.", "code": "not-logged-in" }
+{ "status": "err", "message": "Not logged in. Run 'fscl login' to authenticate.", "code": "NOT_LOGGED_IN" }
 ```
 
 ### Output format
 
 Default: human-readable tables. `--json` for machine-readable output. Agents should always use `--json`.
 
-Amounts in output: **integer cents** (`-4599` = -$45.99). Amounts in input: **decimal notation** (`--amount -45.99`).
+Amounts in output are **integer minor units** (`-4599` = -$45.99 for a
+two-decimal currency). Every successful JSON envelope declares
+`"amounts": "minor_units"`. Amounts in flags and editable schedule JSON use
+decimal notation (`--amount -45.99`).
 
 **Row responses** (list, query, report commands):
 
 ```json
-{ "status": "ok", "entity": "accounts", "count": 2, "data": [...] }
+{ "status": "ok", "amounts": "minor_units", "entity": "accounts", "count": 2, "data": [...] }
 ```
 
 **Mutation responses** (create, update, delete — always JSON regardless of `--json` flag):
 
 ```json
-{ "status": "ok", "entity": "account", "action": "create", "id": "a1b2c3" }
+{ "status": "ok", "amounts": "minor_units", "entity": "account", "action": "create", "id": "a1b2c3" }
 ```
 
 **Errors:**
 
 ```json
-{ "status": "err", "message": "No budget selected." }
+{ "status": "err", "message": "No budget selected.", "code": "NO_BUDGET" }
 ```
 
 Validation errors include an `errors` array with `path` and `message` per item.
@@ -62,6 +65,8 @@ Validation errors include an `errors` array with `path` and `message` per item.
 | `data` | Array of rows |
 | `action` | Mutation action (`create`, `update`, `delete`, etc.) |
 | `message` | Human-readable summary or error message |
+| `amounts` | Amount convention; currently always `minor_units` on success |
+| `code` | Stable error code |
 | `errors` | Detail array for parse/validation failures |
 
 ## init
@@ -119,6 +124,8 @@ Clears stored `serverURL` and `token`.
 | `budgets create [name]` | Create a new budget (interactive if name omitted) |
 | `budgets use <id>` | Set active budget |
 | `budgets delete <id>` | Delete local budget copy (`--yes` required) |
+| `budgets export [path]` | Sync first when configured, then write full budget backup zip (defaults to `./<budget-id>-<local-date>.zip`) |
+| `budgets restore <path>` | Import an Actual zip as a new local budget and select it |
 | `budgets pull <syncId>` | Download remote budget, set active |
 | `budgets push` | Upload local budget to server |
 
@@ -155,7 +162,7 @@ Output columns: `id`, `name`, `offbudget`, `closed`, `balance_current`
 | Command | Key Flags |
 |---|---|
 | `transactions list <acctId>` | `--start`, `--end` (both required) |
-| `transactions uncategorized` | `--account <id>`, `--start`, `--end` |
+| `transactions uncategorized` | `--account <id>`, `--start`, `--end`; omits same-budget-status transfers that cannot retain categories |
 | `transactions add <acctId>` | `--date`, `--amount` (required); `--payee`, `--category`, `--notes`, `--cleared` |
 | `transactions transfer <fromAcct> <toAcct>` | `--date`, `--amount` (required); `--notes`, `--cleared`, `--category` |
 | `transactions reconcile list` | `--account`, `--start`, `--end`, `--limit` |
@@ -176,11 +183,19 @@ Fill in `category` with category IDs. Apply output: `id`, `category`, `result`.
 ### edit draft/apply
 
 `fscl transactions edit draft --account|--category|--start|--end [--limit <n>]` (at least one filter required)
-`fscl transactions edit apply [--dry-run]`
+`fscl transactions edit apply [--dry-run] [--include-transfers]`
 
 Draft shape: `[{ id, date, amount, payee, category, notes, cleared, account, _meta }]`
 
-Amounts are decimal strings. Apply output: `id`, `fields`, `result`.
+Amounts are decimal strings. Apply compares the draft with live rows and sends
+only fields that changed. It refuses payee changes on linked transfers because
+Actual would delete the counterpart; use `--include-transfers` only when that
+destructive unlink is intentional. Apply output: `id`, `fields`, `result`.
+
+Successful bulk mutation output includes `snapshot`, the full budget zip made
+immediately before the write. Automatic snapshots live in
+`<dataDir>/<budgetId>/snapshots/`; fscl retains the newest ten. Restore one with
+`fscl budgets restore <snapshot.zip>`.
 
 ### transfer
 
@@ -341,7 +356,7 @@ Output columns: `id`, `name`, `transfer_acct`
 | `rules list` | |
 | `rules validate <json>` | Validate without creating |
 | `rules preview <json>` | Show matching transactions |
-| `rules run` | `--rule <id>`, `--dry-run`, `--and-commit` |
+| `rules run` | `--rule <id>`, `--dry-run`, `--and-commit`, `--include-transfers` (unsafe or category-irrelevant transfer matches are skipped by default and reported as `skipped_transfers`) |
 | `rules create <json>` | `--run` (apply retroactively) |
 | `rules create-batch <json>` | All validated before any created |
 | `rules draft` | Generate editable draft |
@@ -366,14 +381,19 @@ See [rules.md](rules.md) for JSON schema, stages, conditions, and actions.
 | `schedules history <id>` | `--limit <n>` (default: 12) |
 | `schedules review <id> <json>` | `{decision, note?, cadenceMonths?}` |
 | `schedules reviews` | `--due` (only unreviewed/due) |
-| `schedules create <json>` | |
-| `schedules update <id> <json>` | |
+| `schedules create <json>` | Requires `account`, `payee`, `date`. `amount` in decimals (`-15.99`); `amountOp` defaults to `isapprox` |
+| `schedules update <id> <json>` | `amount` in decimals; the resulting amount/operator pair must remain valid (`isbetween` = range, `is`/`isapprox` = scalar) |
 | `schedules delete <id>` | `--yes` (required) |
 
 List columns: `id`, `name`, `posts_transaction`, `next_date`, `amount`, `amount_op`, `account`, `account_name`, `payee`, `payee_name`, `date`
 Upcoming adds: `days_until`. Missed adds: `days_overdue`.
 Summary columns: `id`, `name`, `payee_name`, `account_name`, `amount`, `frequency`, `interval`, `monthly_amount`, `annual_amount`, `next_date`. Metadata: `total_monthly`, `total_annual`.
 Reviews columns: `schedule_id`, `name`, `payee_name`, `amount`, `decision`, `reviewed_at`, `next_review_at`, `cadence_months`, `note`, `days_until_review`
+
+Review metadata is stored in a structured block in each schedule's synced
+budget note, so it follows the budget across devices and is included in
+budget exports. Recording a review with `schedules review` writes the note;
+`schedules reviews` is read-only.
 
 ## tags
 
@@ -428,4 +448,4 @@ Never hand-create a draft file by path. Generate it with the draft command, then
 | Code | Meaning |
 |---|---|
 | `0` | Success |
-| `1` | Failure (validation errors, partial import failures, etc.) |
+| `1` | Failure (validation errors, refused mutations, etc.). An import with row-level errors still exits `0` with `status: "ok"` and an `errors` count — committed rows are reported, not rolled back |

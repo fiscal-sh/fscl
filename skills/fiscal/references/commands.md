@@ -5,7 +5,7 @@ Common patterns and recipes. For full flag/output details, see [command-referenc
 ## Conventions
 
 - Always pass `--json` — present output as human-friendly summaries, never raw JSON.
-- Amounts: input as decimals (`--amount 45.99`), output in cents (`-4599`).
+- Amounts: input as decimals (`--amount 45.99`, schedule JSON `"amount": -15.99`), output in integer minor units (`-4599`). Successful JSON declares `"amounts":"minor_units"`. Rule condition JSON also uses minor units (e.g. `-1046`).
 - Dates: `YYYY-MM-DD`. Months: `YYYY-MM`.
 - JSON input: pass inline or use `@filepath` to read from file.
 - Deletion: always requires `--yes`. Use `--transfer-to <id>` to reassign children before deleting.
@@ -44,7 +44,7 @@ Seven workflows use draft/apply:
 |---|---|---|
 | Categories | `fscl categories draft` | `fscl categories apply [--dry-run]` |
 | Categorize transactions | `fscl transactions categorize draft [filters]` | `fscl transactions categorize apply [--dry-run]` |
-| Edit transactions | `fscl transactions edit draft [filters]` | `fscl transactions edit apply [--dry-run]` |
+| Edit transactions | `fscl transactions edit draft [filters]` | `fscl transactions edit apply [--dry-run] [--include-transfers]` |
 | Reconcile transactions | `fscl transactions reconcile draft [filters]` | `fscl transactions reconcile apply [--dry-run]` |
 | Rules | `fscl rules draft` | `fscl rules apply [--dry-run]` |
 | Month budgets | `fscl month draft <month>` | `fscl month apply <month> [--dry-run]` |
@@ -53,6 +53,15 @@ Seven workflows use draft/apply:
 Never hand-create a new draft JSON file by guessing the `drafts/` path. Always generate it with the draft command first, then edit the `path` returned in the command output.
 
 Draft files include `_meta` fields for context — these are ignored on apply.
+
+Transaction apply commands validate every target ID and send only true field
+changes. Never pass `--include-transfers` unless the user explicitly intends to
+change a linked transfer's payee and accepts that Actual will delete the linked
+counterpart.
+
+Bulk transaction imports, rule runs, and transaction draft applies create a
+full budget snapshot before writing. Keep the returned `snapshot` path in the
+summary. Restore it as a new local budget with `fscl budgets restore <path>`.
 
 Category drafts use two entity types: category-group rows at the top level and category rows inside each group's `categories` array (`[{ id?, name, categories: [{ id?, name }] }]`). Categories do not contain child categories.
 

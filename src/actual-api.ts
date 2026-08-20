@@ -70,11 +70,20 @@ export type ActualApi = {
   updateSchedule(id: string, fields: Record<string, unknown>): Promise<unknown>;
   deleteSchedule(id: string): Promise<unknown>;
 
+  getNote(id: string): Promise<{ id: string; note: string } | null>;
+  updateNote(id: string, note: string): Promise<void>;
+
   getBudgetMonth(month: string): Promise<unknown>;
   getBudgetMonths(): Promise<string[]>;
   setBudgetAmount(month: string, categoryId: string, amount: number): Promise<unknown>;
   setBudgetCarryover(month: string, categoryId: string, value: boolean): Promise<unknown>;
   holdBudgetForNextMonth(month: string, amount: number): Promise<unknown>;
+
+  exportBudget(): Promise<Uint8Array>;
+  importBudget(
+    input: string | ArrayBuffer | Uint8Array,
+    options?: { type?: 'ynab4' | 'ynab5' | 'actual'; filename?: string },
+  ): Promise<{ id: string }>;
 
   q(table: string): QueryBuilder;
   aqlQuery(query: QueryBuilder): Promise<unknown>;

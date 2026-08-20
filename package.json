@@ -1,6 +1,6 @@
 {
   "name": "fscl",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "Headless CLI for Actual Budget",
   "type": "module",
   "main": "dist/index.js",
@@ -42,7 +42,7 @@
   "author": "benbjurstrom",
   "license": "MIT",
   "dependencies": {
-    "@actual-app/api": "26.4.0",
+    "@actual-app/api": "26.8.1",
     "@clack/prompts": "^1.0.1",
     "better-sqlite3": "^12.6.2",
     "commander": "^13.1.0",

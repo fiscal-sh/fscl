@@ -29,6 +29,16 @@ fscl transactions import <accountId> ./export.ofx --show-rows
 fscl transactions import <accountId> ./export.ofx --report
 ```
 
+## Balance mismatches after import
+
+If the account balance still differs from the bank after a clean import, check
+the export's date range first: a file that stops before today means pending or
+recent transactions are missing, and a file that starts after the account
+opened means older history is missing. Prefer re-exporting a wider range over
+adjusting the opening balance — an opening-balance adjustment silently absorbs
+whatever the file didn't cover, and will drift again when those transactions
+are eventually imported.
+
 ## Import pipeline
 
 1. **Parse** — Read file, extract transactions based on format
@@ -227,19 +237,24 @@ fscl transactions import abc123 ./download.qif --flip-amount --report
 
 ### With `--show-rows`
 
-You still get the JSON import status object, plus an additional JSON payload with `entity: "import-rows"`:
+The single JSON response includes a `rows` array. Combining `--show-rows` and
+`--report` still emits exactly one JSON document; the compact report is nested
+under `report`:
 
 ```json
 {
   "status": "ok",
-  "entity": "import-rows",
-  "count": 2,
-  "data": [
+  "entity": "import",
+  "amounts": "minor_units",
+  "rows": [
     { "date": "2026-01-05", "amount": -4599, "payee_name": "STARBUCKS #1234", "category": null, "notes": "coffee" },
     { "date": "2026-01-06", "amount": -12300, "payee_name": "WHOLE FOODS MKT", "category": null, "notes": "groceries" }
   ]
 }
 ```
+
+Committed imports also return `snapshot`, the pre-import budget export. fscl
+keeps the newest ten snapshots under `<dataDir>/<budgetId>/snapshots/`.
 
 ### With `--dry-run`
 

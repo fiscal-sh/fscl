@@ -9,11 +9,13 @@ Get Fiscal running and set up your first budget in about five minutes.
 
 ## Install
 
+Fiscal requires [Node.js](https://nodejs.org/) 20 or newer.
+
 ```bash
 npm install -g fscl
 ```
 
-If you start with `npx fscl init` instead, interactive setup prompts to run `npm install -g fscl` at the end.
+You can also skip the install and run `npx fscl init` directly. The setup wizard offers to install fscl globally when it finishes.
 
 ## Create your first budget
 
@@ -25,24 +27,30 @@ fscl init
 
 You'll be asked to choose a mode:
 
-- **local** — Creates a budget on your machine. No server needed. Pick this if you're just getting started or don't plan to use the Actual Budget web UI.
-- **remote** — Pulls down a budget that already exists on an [Actual Budget server](https://actualbudget.org/docs/installing/). Pick this if you're already using Actual Budget and want to manage it from the CLI.
+- **local** creates a budget on your machine. No server needed. Pick this if you're just getting started or don't plan to use the Actual Budget web UI.
+- **remote** pulls down a budget that already exists on an [Actual Budget server](https://actualbudget.org/docs/installing/). Pick this if you're already using Actual Budget and want to manage it from the CLI.
 
 If you start local and later want to sync to a server, run `fscl budgets push`.
 
+When the wizard finishes, check that everything works:
+
+```bash
+fscl status
+```
+
+This shows your budget, accounts, and server connection if you have one.
+
 ## Install the agent skills
 
-Fiscal includes a comprehensive set of [Agent Skills](https://agentskills.io/) that teach your AI agent how to act as your personal accountant — managing your budget, handling imports, and categorizing transactions so you don't have to memorize any commands.
+Fiscal includes a set of [Agent Skills](https://agentskills.io/) that teach your AI agent to act as your personal accountant. The skills cover budgeting, bank imports, and transaction categorization, so you don't have to memorize any commands.
 
-In interactive mode, `fscl init` asks whether to install these skills for you.
+In interactive mode, `fscl init` asks whether to install these skills for you. If you skipped that step, or ran `fscl init --non-interactive`, install them yourself:
 
 ```bash
 npx skills add fiscal-sh/fscl
 ```
 
-If you run `fscl init --non-interactive`, run this command manually.
-
-This works with Claude Code, Cursor, Codex, and [other agents that support skills](https://github.com/vercel-labs/skills#supported-agents).
+This works with Claude Code, Cursor, Codex, and [other agents that support skills](https://github.com/vercel-labs/skills#supported-agents). To update the skills later, run the same command again. It pulls the latest version from GitHub.
 
 ## Start using it
 
@@ -50,7 +58,7 @@ With the skill installed, just talk to your agent in plain language:
 
 > Help me set up my budget with fscl.
 
-The agent will ask about your bank accounts, income, and spending categories, then create everything using fscl commands behind the scenes. You don't need to know the CLI — just answer its questions.
+The agent will ask about your bank accounts, income, and spending categories, then create everything using fscl commands behind the scenes. You don't need to know the CLI. Just answer its questions.
 
 ### Day-to-day tasks
 
@@ -72,6 +80,6 @@ The agent will import the file, run your rules to auto-categorize known payees, 
 
 ## Next steps
 
-- [Budgeting Philosophy](budgeting-philosophy) — how envelope budgeting works and why it matters
-- [Budget Setup Guide](budget-setup-guide) — detailed walkthrough for setting up a real budget
-- [Command Reference](/docs/skills/references/command-reference) — every command and option
+- [Budgeting Philosophy](budgeting-philosophy): how envelope budgeting works and why it matters
+- [Actual Budget Server](actual-budget-setup): add a web dashboard to see your budget visually
+- [Command Reference](/docs/skills/references/command-reference): every command and option
