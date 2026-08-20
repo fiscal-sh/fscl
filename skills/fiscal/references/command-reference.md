@@ -36,8 +36,9 @@ Default: human-readable tables. `--json` for machine-readable output. Agents sho
 
 Amounts in output are **integer minor units** (`-4599` = -$45.99 for a
 two-decimal currency). Every successful JSON envelope declares
-`"amounts": "minor_units"`. Amounts in flags and editable schedule JSON use
-decimal notation (`--amount -45.99`).
+`"amounts": "minor_units"`. Amounts in flags, draft files, and editable
+schedule JSON use decimal notation (`--amount -45.99`). The one input
+exception is rule condition JSON, which uses minor units (e.g. `-1046`).
 
 **Row responses** (list, query, report commands):
 
