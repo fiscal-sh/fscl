@@ -28,6 +28,71 @@ const ScheduleUpdateSchema = z.record(z.string(), z.unknown()).refine(
   { message: 'Schedule update payload must be a non-empty JSON object' },
 );
 
+const SCHEDULE_AMOUNT_OPS = new Set(['is', 'isapprox', 'isbetween']);
+
+/**
+ * Convert decimal-dollar amounts to integer minor units and validate amountOp.
+ * The Actual API builds the schedule's backing rule directly from these fields;
+ * an absent or invalid amountOp produces a corrupt rule that fails to load.
+ */
+function normalizeScheduleAmountFields(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...payload };
+  if (next.amount !== undefined) {
+    const amount = next.amount;
+    if (typeof amount === 'number') {
+      if (!Number.isFinite(amount)) {
+        throw new Error('Schedule amount must be a finite decimal number (e.g. -15.99)');
+      }
+      next.amount = api.utils.amountToInteger(amount);
+    } else if (amount && typeof amount === 'object') {
+      const range = amount as Record<string, unknown>;
+      if (typeof range.num1 !== 'number' || typeof range.num2 !== 'number') {
+        throw new Error(
+          'Schedule amount must be a decimal number (e.g. -15.99), or {"num1":..,"num2":..} decimals for amountOp "isbetween"',
+        );
+      }
+      next.amount = {
+        num1: api.utils.amountToInteger(range.num1),
+        num2: api.utils.amountToInteger(range.num2),
+      };
+    } else {
+      throw new Error('Schedule amount must be a decimal number (e.g. -15.99)');
+    }
+  }
+  if (
+    next.amountOp !== undefined &&
+    !SCHEDULE_AMOUNT_OPS.has(String(next.amountOp))
+  ) {
+    throw new Error(
+      `Invalid amountOp: ${String(next.amountOp)}. Expected: is, isapprox, or isbetween`,
+    );
+  }
+  return next;
+}
+
+function normalizeScheduleCreatePayload(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = normalizeScheduleAmountFields(payload);
+  for (const field of ['payee', 'account', 'date'] as const) {
+    if (next[field] == null || next[field] === '') {
+      throw new Error(
+        `Schedule ${field} is required. Example: {"account":"<acct-id>","payee":"<payee-id>","amount":-15.99,"date":{"frequency":"monthly","start":"2026-01-01","interval":1}}`,
+      );
+    }
+  }
+  if (next.amount === undefined) {
+    next.amount = 0;
+  }
+  if (next.amountOp === undefined) {
+    next.amountOp =
+      next.amount && typeof next.amount === 'object' ? 'isbetween' : 'isapprox';
+  }
+  return next;
+}
+
 const SCHEDULE_COLUMNS = [
   'id',
   'name',
@@ -611,7 +676,12 @@ next_review_at has passed.`,
       'after',
       `
 Example:
-  fiscal schedules create '{"account":"acct-id","payee":"payee-id","amount":-1599,"date":{"frequency":"monthly","start":"2025-07-01","interval":1}}'
+  fiscal schedules create '{"name":"Netflix","account":"acct-id","payee":"payee-id","amount":-15.99,"date":{"frequency":"monthly","start":"2025-07-01","interval":1}}'
+
+Required fields: account, payee, date.
+amount is in decimal currency units (-15.99 = an outflow of 15.99), matching
+the rest of the CLI's input convention. amountOp defaults to "isapprox"
+(valid: is, isapprox, isbetween; isbetween takes {"num1":..,"num2":..}).
 
 See Actual Budget docs for the full schedule/recurrence schema.`,
     )
@@ -619,10 +689,12 @@ See Actual Budget docs for the full schedule/recurrence schema.`,
       commandAction(async (scheduleJson: string, ...args: unknown[]) => {
         const cmd = getActionCommand(args);
         const session = getSessionOptions(cmd);
-        const schedule = parseJsonWithSchema(
-          scheduleJson,
-          ScheduleCreateSchema,
-          'schedule payload',
+        const schedule = normalizeScheduleCreatePayload(
+          parseJsonWithSchema(
+            scheduleJson,
+            ScheduleCreateSchema,
+            'schedule payload',
+          ),
         );
         await withBudget(
           { ...session, write: true },
@@ -643,20 +715,38 @@ See Actual Budget docs for the full schedule/recurrence schema.`,
       'after',
       `
 Example:
-  fiscal schedules update sch-abc123 '{"amount":-1699}'`,
+  fiscal schedules update sch-abc123 '{"amount":-16.99}'
+
+amount is in decimal currency units (-16.99 = an outflow of 16.99). If the
+schedule's stored amount operator is missing or invalid (e.g. created by an
+older fscl version), it is repaired to "isapprox" in the same update.`,
     )
     .action(
       commandAction(async (id: string, fieldsJson: string, ...args: unknown[]) => {
         const cmd = getActionCommand(args);
         const session = getSessionOptions(cmd);
-        const fields = parseJsonWithSchema(
-          fieldsJson,
-          ScheduleUpdateSchema,
-          'schedule update payload',
+        const fields = normalizeScheduleAmountFields(
+          parseJsonWithSchema(
+            fieldsJson,
+            ScheduleUpdateSchema,
+            'schedule update payload',
+          ),
         );
         await withBudget(
           { ...session, write: true },
           async () => {
+            if (fields.amount !== undefined && fields.amountOp === undefined) {
+              const allSchedules = (await api.getSchedules()) as Array<
+                Record<string, unknown>
+              >;
+              const schedule = findScheduleById(allSchedules, id);
+              if (!SCHEDULE_AMOUNT_OPS.has(String(schedule.amountOp))) {
+                fields.amountOp =
+                  fields.amount && typeof fields.amount === 'object'
+                    ? 'isbetween'
+                    : 'isapprox';
+              }
+            }
             await api.updateSchedule(
               id,
               fields as unknown as Parameters<typeof api.updateSchedule>[1],

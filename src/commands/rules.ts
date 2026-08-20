@@ -433,10 +433,30 @@ async function matchedRuleIdForTransaction(
   return '';
 }
 
+function partitionTransfers(
+  transactions: Array<Record<string, unknown>>,
+  includeTransfers: boolean,
+): { kept: Array<Record<string, unknown>>; skippedTransfers: number } {
+  if (includeTransfers) {
+    return { kept: transactions, skippedTransfers: 0 };
+  }
+  const kept: Array<Record<string, unknown>> = [];
+  let skippedTransfers = 0;
+  for (const tx of transactions) {
+    if (tx.transfer_id) {
+      skippedTransfers += 1;
+    } else {
+      kept.push(tx);
+    }
+  }
+  return { kept, skippedTransfers };
+}
+
 async function applySingleRule(
   ruleId: string,
   format: 'json' | 'table',
   mode: 'dry-run' | 'apply' | 'and-commit',
+  includeTransfers = false,
 ): Promise<void> {
   const rule = (await send('rule-get', {
     id: ruleId,
@@ -451,9 +471,13 @@ async function applySingleRule(
       .select(['*'])
       .orderBy({ date: 'desc' }) as Parameters<typeof api.aqlQuery>[0],
   );
-  const uncategorized = ((result as { data?: unknown }).data ?? []) as Array<
+  const fetched = ((result as { data?: unknown }).data ?? []) as Array<
     Record<string, unknown>
   >;
+  const { kept: uncategorized, skippedTransfers } = partitionTransfers(
+    fetched,
+    includeTransfers,
+  );
 
   if (uncategorized.length === 0) {
     printStatusOk({
@@ -461,6 +485,7 @@ async function applySingleRule(
       rule: ruleId,
       matched: 0,
       updated: 0,
+      skipped_transfers: skippedTransfers,
     });
     return;
   }
@@ -491,9 +516,11 @@ async function applySingleRule(
   const matchResult = await api.aqlQuery(
     matchQuery as Parameters<typeof api.aqlQuery>[0],
   );
-  const matched = ((matchResult as { data?: unknown }).data ?? []) as Array<
+  const matchedRaw = ((matchResult as { data?: unknown }).data ?? []) as Array<
     Record<string, unknown>
   >;
+  const { kept: matched, skippedTransfers: skippedMatchedTransfers } =
+    partitionTransfers(matchedRaw, includeTransfers);
 
   if (matched.length === 0) {
     printStatusOk({
@@ -501,6 +528,7 @@ async function applySingleRule(
       rule: ruleId,
       matched: 0,
       updated: 0,
+      skipped_transfers: skippedMatchedTransfers,
     });
     return;
   }
@@ -515,6 +543,7 @@ async function applySingleRule(
       matched: previewRows.length,
       updated: 0,
       dryRun: 1,
+      skipped_transfers: skippedMatchedTransfers,
     });
     const applyResult = (await send('rule-apply-actions', {
       transactions: matched,
@@ -530,6 +559,7 @@ async function applySingleRule(
       rule: ruleId,
       matched: appliedRows.length,
       updated: appliedRows.length,
+      skipped_transfers: skippedMatchedTransfers,
     });
     return;
   }
@@ -550,6 +580,7 @@ async function applySingleRule(
       matched: appliedRows.length,
       updated: appliedRows.length,
       dryRun: 0,
+      skipped_transfers: skippedMatchedTransfers,
     });
     return;
   }
@@ -559,6 +590,7 @@ async function applySingleRule(
     matched: previewRows.length,
     updated: 0,
     dryRun: 1,
+    skipped_transfers: skippedMatchedTransfers,
   });
 }
 
@@ -669,6 +701,10 @@ Use this to verify a rule before committing it with "rules create".`,
     .option('--rule <id>', 'Run only this rule (default: all rules)')
     .option('--dry-run', 'Preview changes without applying')
     .option('--and-commit', 'Preview then commit in one call')
+    .option(
+      '--include-transfers',
+      'Also run rules on transfer-linked transactions (DANGEROUS: a payee-set action deletes the linked half in the other account)',
+    )
     .description('Run rules retroactively on uncategorized transactions')
     .addHelpText(
       'after',
@@ -683,11 +719,17 @@ Finds uncategorized transactions and runs rules against them.
 Only transactions where rules change one of these fields are reported:
 category, payee, notes, or cleared.
 
+Transfer-linked transactions are skipped by default (they are always
+uncategorized, and overwriting a transfer's payee deletes the linked
+transaction in the other account). The number skipped is reported as
+skipped_transfers. Pass --include-transfers only if you are certain no
+rule sets the payee field on a transfer.
+
 Output includes payee_before/payee_after, category_before/category_after,
 and matched_rule.`,
     )
     .action(
-      commandAction(async (options: { rule?: string; dryRun?: boolean; andCommit?: boolean }, ...args: unknown[]) => {
+      commandAction(async (options: { rule?: string; dryRun?: boolean; andCommit?: boolean; includeTransfers?: boolean }, ...args: unknown[]) => {
         const cmd = getActionCommand(args);
         const session = getSessionOptions(cmd);
         const format = getFormat(cmd);
@@ -701,13 +743,15 @@ and matched_rule.`,
         await withBudget(
           { ...session, write: !dryRun },
           async () => {
+            const includeTransfers = Boolean(options.includeTransfers);
+
             if (options.rule) {
               const mode = andCommit
                 ? 'and-commit'
                 : dryRun
                   ? 'dry-run'
                   : 'apply';
-              await applySingleRule(options.rule, format, mode);
+              await applySingleRule(options.rule, format, mode, includeTransfers);
               return;
             }
 
@@ -718,15 +762,20 @@ and matched_rule.`,
                 .select(['*'])
                 .orderBy({ date: 'desc' }) as Parameters<typeof api.aqlQuery>[0],
             );
-            const uncategorized = ((result as { data?: unknown }).data ?? []) as Array<
+            const fetched = ((result as { data?: unknown }).data ?? []) as Array<
               Record<string, unknown>
             >;
+            const { kept: uncategorized, skippedTransfers } = partitionTransfers(
+              fetched,
+              includeTransfers,
+            );
 
             if (uncategorized.length === 0) {
               printStatusOk({
                 entity: 'rules-run',
                 matched: 0,
                 updated: 0,
+                skipped_transfers: skippedTransfers,
               });
               return;
             }
@@ -785,6 +834,7 @@ and matched_rule.`,
                 matched: changed.length,
                 updated: 0,
                 dryRun: 1,
+                skipped_transfers: skippedTransfers,
               });
               if (changed.length > 0) {
                 await send('transactions-batch-update', { updated: buildUpdates() });
@@ -793,6 +843,7 @@ and matched_rule.`,
                 entity: 'rules-run-result',
                 matched: changed.length,
                 updated: changed.length,
+                skipped_transfers: skippedTransfers,
               });
             } else {
               if (changed.length > 0 && !dryRun) {
@@ -802,6 +853,7 @@ and matched_rule.`,
                 matched: changed.length,
                 updated: dryRun ? 0 : changed.length,
                 dryRun: dryRun ? 1 : 0,
+                skipped_transfers: skippedTransfers,
               });
             }
           },
@@ -964,6 +1016,14 @@ The entire rule object must be provided (not just changed fields).`,
         await withBudget(
           { ...session, write: true },
           async () => {
+            const existing = (await send('rule-get', {
+              id: rule.id,
+            })) as Record<string, unknown> | null;
+            if (!existing) {
+              throw new Error(
+                `Rule not found: ${rule.id}. Pass the full rule id from 'fscl rules list' — updating a nonexistent id would silently create a duplicate rule.`,
+              );
+            }
             await validateRuleOrThrow(rule);
             const updated = (await api.updateRule(
               rule as unknown as Parameters<typeof api.updateRule>[0],

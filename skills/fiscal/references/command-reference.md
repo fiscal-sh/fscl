@@ -119,6 +119,7 @@ Clears stored `serverURL` and `token`.
 | `budgets create [name]` | Create a new budget (interactive if name omitted) |
 | `budgets use <id>` | Set active budget |
 | `budgets delete <id>` | Delete local budget copy (`--yes` required) |
+| `budgets export [path]` | Write full budget backup zip (defaults to `./<budget-id>-<date>.zip`) |
 | `budgets pull <syncId>` | Download remote budget, set active |
 | `budgets push` | Upload local budget to server |
 
@@ -341,7 +342,7 @@ Output columns: `id`, `name`, `transfer_acct`
 | `rules list` | |
 | `rules validate <json>` | Validate without creating |
 | `rules preview <json>` | Show matching transactions |
-| `rules run` | `--rule <id>`, `--dry-run`, `--and-commit` |
+| `rules run` | `--rule <id>`, `--dry-run`, `--and-commit`, `--include-transfers` (transfer-linked transactions are skipped by default and reported as `skipped_transfers`) |
 | `rules create <json>` | `--run` (apply retroactively) |
 | `rules create-batch <json>` | All validated before any created |
 | `rules draft` | Generate editable draft |
@@ -366,8 +367,8 @@ See [rules.md](rules.md) for JSON schema, stages, conditions, and actions.
 | `schedules history <id>` | `--limit <n>` (default: 12) |
 | `schedules review <id> <json>` | `{decision, note?, cadenceMonths?}` |
 | `schedules reviews` | `--due` (only unreviewed/due) |
-| `schedules create <json>` | |
-| `schedules update <id> <json>` | |
+| `schedules create <json>` | Requires `account`, `payee`, `date`. `amount` in decimals (`-15.99`); `amountOp` defaults to `isapprox` |
+| `schedules update <id> <json>` | `amount` in decimals; a missing/invalid stored amount operator is repaired to `isapprox` automatically |
 | `schedules delete <id>` | `--yes` (required) |
 
 List columns: `id`, `name`, `posts_transaction`, `next_date`, `amount`, `amount_op`, `account`, `account_name`, `payee`, `payee_name`, `date`

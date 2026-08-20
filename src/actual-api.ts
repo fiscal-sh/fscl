@@ -76,6 +76,8 @@ export type ActualApi = {
   setBudgetCarryover(month: string, categoryId: string, value: boolean): Promise<unknown>;
   holdBudgetForNextMonth(month: string, amount: number): Promise<unknown>;
 
+  exportBudget(): Promise<Uint8Array>;
+
   q(table: string): QueryBuilder;
   aqlQuery(query: QueryBuilder): Promise<unknown>;
 

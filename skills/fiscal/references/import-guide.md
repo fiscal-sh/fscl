@@ -29,6 +29,16 @@ fscl transactions import <accountId> ./export.ofx --show-rows
 fscl transactions import <accountId> ./export.ofx --report
 ```
 
+## Balance mismatches after import
+
+If the account balance still differs from the bank after a clean import, check
+the export's date range first: a file that stops before today means pending or
+recent transactions are missing, and a file that starts after the account
+opened means older history is missing. Prefer re-exporting a wider range over
+adjusting the opening balance — an opening-balance adjustment silently absorbs
+whatever the file didn't cover, and will drift again when those transactions
+are eventually imported.
+
 ## Import pipeline
 
 1. **Parse** — Read file, extract transactions based on format

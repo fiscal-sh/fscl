@@ -5,7 +5,7 @@ Common patterns and recipes. For full flag/output details, see [command-referenc
 ## Conventions
 
 - Always pass `--json` — present output as human-friendly summaries, never raw JSON.
-- Amounts: input as decimals (`--amount 45.99`), output in cents (`-4599`).
+- Amounts: input as decimals (`--amount 45.99`, schedule JSON `"amount": -15.99`), output in cents (`-4599`). This holds for every command, including schedules and rules drafts; rule condition JSON is the one exception (minor units, e.g. `-1046`).
 - Dates: `YYYY-MM-DD`. Months: `YYYY-MM`.
 - JSON input: pass inline or use `@filepath` to read from file.
 - Deletion: always requires `--yes`. Use `--transfer-to <id>` to reassign children before deleting.

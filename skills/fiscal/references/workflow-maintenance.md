@@ -20,6 +20,12 @@ For CSV files with custom columns, see [import-guide.md](import-guide.md). Alway
 fscl rules run --and-commit
 ```
 
+Transfer-linked transactions are skipped automatically (reported as
+`skipped_transfers`) — transfers are always uncategorized, and a payee-set
+action applied to one would delete its linked half in the other account.
+Do not pass `--include-transfers` unless you are certain no matching rule
+sets the payee field.
+
 ### 3. Reconcile Reviewed Transactions
 
 ```bash
@@ -193,6 +199,31 @@ When fscl's account balance differs from the user's bank balance:
    - **Missing transactions:** Manual entries not recorded — add them with `fscl transactions add`
    - **Wrong amount:** A transaction was entered incorrectly — fix with `fscl transactions edit draft` / `edit apply`
 4. After fixing, verify: `fscl accounts balance <id> --json`
+
+## Subscriptions & Recurring Charges
+
+Track every recurring charge as a schedule — this is the recommended way to
+store subscription metadata (renewal dates, keep/cancel decisions, review
+cadence):
+
+```bash
+# One schedule per recurring charge. amount is decimal currency units.
+fscl schedules create '{"name":"Netflix","account":"<acct-id>","payee":"<payee-id>","amount":-15.99,"date":{"frequency":"monthly","start":"2026-01-01","interval":1}}'
+
+# Subscription dashboard: per-schedule and total monthly/annual burn
+fscl schedules summary --json
+
+# Record a keep/cancel decision with a note and review cadence
+fscl schedules review <id> '{"decision":"cancel","note":"not renewing","cadenceMonths":12}'
+
+# Surface subscriptions that need a decision (unreviewed or review due)
+fscl schedules reviews --due
+```
+
+For a **canceled** subscription, keep its schedule: the schedule showing up in
+`fscl schedules missed` on its renewal date is positive confirmation the
+cancellation worked, while a rogue charge would match the schedule and be
+visible. Delete the schedule only after the first missed renewal confirms it.
 
 ## Proactive Monitoring
 

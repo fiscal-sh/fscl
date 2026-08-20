@@ -197,6 +197,45 @@ export function registerBudgetCommands(program: Command) {
     );
 
   budgets
+    .command('export [path]')
+    .description('Export the active budget to a zip file')
+    .addHelpText(
+      'after',
+      `
+Example:
+  fiscal budgets export                     # ./<budget-id>-<date>.zip
+  fiscal budgets export ~/backups/my.zip
+
+Writes a full budget export (same format as the Actual UI's "Export budget"),
+suitable for backups or re-import via Actual.`,
+    )
+    .action(
+      commandAction(async (path: string | undefined, ...args: unknown[]) => {
+        const cmd = getActionCommand(args);
+        const session = getSessionOptions(cmd);
+        await withBudget(session, async ({ budgetId }) => {
+          const data = await api.exportBudget();
+          const target =
+            path && path.trim()
+              ? path
+              : `${budgetId}-${new Date().toISOString().slice(0, 10)}.zip`;
+          const { writeFileSync, mkdirSync } = await import('node:fs');
+          const { dirname, resolve } = await import('node:path');
+          const resolved = resolve(target);
+          mkdirSync(dirname(resolved), { recursive: true });
+          writeFileSync(resolved, data);
+          printStatusOk({
+            entity: 'budget',
+            action: 'export',
+            id: budgetId,
+            path: resolved,
+            bytes: data.byteLength,
+          });
+        });
+      }),
+    );
+
+  budgets
     .command('use <id>')
     .description('Set active budget id in config')
     .action(

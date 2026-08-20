@@ -163,3 +163,142 @@ describe('rules draft/apply', () => {
     expect(row?.actions).not.toContain('"type"');
   }, 20000);
 });
+
+describe('rules run transfer protection', () => {
+  let testEnv: CliTestEnv;
+
+  beforeEach(() => {
+    testEnv = createCliTestEnv();
+  });
+
+  afterEach(() => {
+    testEnv.cleanup();
+  });
+
+  function cli(args: string[]) {
+    return runCli(
+      ['--data-dir', testEnv.dataDir, '--json', ...args],
+      undefined,
+      testEnv.env,
+    );
+  }
+
+  it('skips transfer-linked transactions by default and reports them', () => {
+    createLocalBudget(testEnv, 'TransferRuleBudget');
+
+    const checking = parseJsonOutput<{ id: string }>(
+      cli(['accounts', 'create', 'Checking']).stdout,
+    );
+    const savings = parseJsonOutput<{ id: string }>(
+      cli(['accounts', 'create', 'Savings']).stdout,
+    );
+    const roguePayee = parseJsonOutput<{ id: string }>(
+      cli(['payees', 'create', 'Rogue']).stdout,
+    );
+
+    const transferResult = cli([
+      'transactions',
+      'transfer',
+      checking.id,
+      savings.id,
+      '--date',
+      '2026-02-10',
+      '--amount',
+      '100.00',
+      '--notes',
+      'Move to savings',
+    ]);
+    expect(transferResult.exitCode).toBe(0);
+
+    // A payee-set rule that matches the transfer halves via notes
+    const ruleResult = cli([
+      'rules',
+      'create',
+      JSON.stringify({
+        stage: null,
+        conditionsOp: 'and',
+        conditions: [{ field: 'notes', op: 'contains', value: 'Move to savings' }],
+        actions: [{ field: 'payee', op: 'set', value: roguePayee.id }],
+      }),
+    ]);
+    expect(ruleResult.exitCode).toBe(0);
+
+    const runResult = cli(['rules', 'run']);
+    expect(runResult.exitCode).toBe(0);
+    const run = parseJsonOutput<{
+      status: string;
+      matched?: number;
+      updated?: number;
+      skipped_transfers?: number;
+    }>(runResult.stdout);
+    expect(run.status).toBe('ok');
+    expect(run.matched ?? 0).toBe(0);
+    expect(run.skipped_transfers).toBe(2);
+
+    // Both transfer halves must still exist and stay linked
+    for (const [accountId, amount] of [
+      [checking.id, -10000],
+      [savings.id, 10000],
+    ] as const) {
+      const list = parseJsonOutput<{
+        data: Array<{ amount: number; transfer_id: string | null }>;
+      }>(
+        cli([
+          'transactions',
+          'list',
+          accountId,
+          '--start',
+          '2026-02-01',
+          '--end',
+          '2026-02-28',
+        ]).stdout,
+      );
+      expect(
+        list.data.some(row => row.amount === amount && row.transfer_id),
+      ).toBe(true);
+    }
+
+    // --include-transfers opts back in (dry-run so nothing is harmed)
+    const optIn = parseJsonOutput<{
+      metadata?: { matched?: number; skipped_transfers?: number };
+      matched?: number;
+      skipped_transfers?: number;
+    }>(cli(['rules', 'run', '--dry-run', '--include-transfers']).stdout);
+    const matched = optIn.matched ?? optIn.metadata?.matched ?? 0;
+    expect(matched).toBe(2);
+  }, 30000);
+
+  it('refuses to update a rule that does not exist', () => {
+    createLocalBudget(testEnv, 'RuleUpdateBudget');
+
+    const group = parseJsonOutput<{ id: string }>(
+      cli(['categories', 'create-group', 'Spending']).stdout,
+    );
+    const category = parseJsonOutput<{ id: string }>(
+      cli(['categories', 'create', 'Dining', '--group', group.id]).stdout,
+    );
+
+    const bogusId = '00000000-0000-4000-8000-000000000000';
+    const updateResult = cli([
+      'rules',
+      'update',
+      JSON.stringify({
+        id: bogusId,
+        stage: null,
+        conditionsOp: 'and',
+        conditions: [{ field: 'imported_payee', op: 'contains', value: 'UBER' }],
+        actions: [{ field: 'category', op: 'set', value: category.id }],
+      }),
+    ]);
+    expect(updateResult.exitCode).not.toBe(0);
+    expect(`${updateResult.stderr}${updateResult.stdout}`).toContain(
+      'Rule not found',
+    );
+
+    // and it must NOT have silently created a rule with that id
+    const list = parseJsonOutput<{ data: Array<{ id: string }> }>(
+      cli(['rules', 'list']).stdout,
+    );
+    expect(list.data.some(rule => rule.id === bogusId)).toBe(false);
+  }, 30000);
+});
