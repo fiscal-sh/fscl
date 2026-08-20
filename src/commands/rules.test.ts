@@ -161,7 +161,7 @@ describe('rules draft/apply', () => {
     expect(row).toBeDefined();
     expect(row?.conditions).not.toContain('"type"');
     expect(row?.actions).not.toContain('"type"');
-  }, 20000);
+  });
 });
 
 describe('rules run transfer protection', () => {
@@ -307,7 +307,75 @@ describe('rules run transfer protection', () => {
     expect(committed.skipped_transfers).toBe(2);
     expect(committed.data).toHaveLength(1);
     expect(existsSync(committed.snapshot)).toBe(true);
-  }, 30000);
+  });
+
+  it('allows category rules on mixed on/off-budget transfers', () => {
+    createLocalBudget(testEnv, 'MixedTransferRuleBudget');
+
+    const checking = parseJsonOutput<{ id: string }>(
+      cli(['accounts', 'create', 'Checking']).stdout,
+    );
+    const mortgage = parseJsonOutput<{ id: string }>(
+      cli(['accounts', 'create', 'Mortgage', '--offbudget']).stdout,
+    );
+    const group = parseJsonOutput<{ id: string }>(
+      cli(['categories', 'create-group', 'Housing']).stdout,
+    );
+    const category = parseJsonOutput<{ id: string }>(
+      cli(['categories', 'create', 'Mortgage Principal', '--group', group.id]).stdout,
+    );
+
+    expect(cli([
+      'transactions',
+      'transfer',
+      checking.id,
+      mortgage.id,
+      '--date',
+      '2026-03-01',
+      '--amount',
+      '500.00',
+      '--notes',
+      'Mortgage payment',
+    ]).exitCode).toBe(0);
+
+    expect(cli([
+      'rules',
+      'create',
+      JSON.stringify({
+        stage: null,
+        conditionsOp: 'and',
+        conditions: [
+          { field: 'account', op: 'is', value: checking.id },
+          { field: 'notes', op: 'contains', value: 'Mortgage payment' },
+        ],
+        actions: [{ field: 'category', op: 'set', value: category.id }],
+      }),
+    ]).exitCode).toBe(0);
+
+    const run = parseJsonOutput<{
+      updated?: number;
+      skipped_transfers?: number;
+      metadata?: { updated?: number; skipped_transfers?: number };
+    }>(cli(['rules', 'run']).stdout);
+    expect(run.updated ?? run.metadata?.updated).toBe(1);
+    expect(run.skipped_transfers ?? run.metadata?.skipped_transfers ?? 0).toBe(0);
+
+    const checkingRows = parseJsonOutput<{
+      data: Array<{ category: string | null; transfer_id: string | null }>;
+    }>(cli([
+      'transactions',
+      'list',
+      checking.id,
+      '--start',
+      '2026-03-01',
+      '--end',
+      '2026-03-31',
+    ]).stdout);
+    expect(checkingRows.data).toContainEqual(
+      expect.objectContaining({ category: category.id }),
+    );
+    expect(checkingRows.data.some(row => row.transfer_id)).toBe(true);
+  });
 
   it('refuses to update a rule that does not exist', () => {
     createLocalBudget(testEnv, 'RuleUpdateBudget');
@@ -341,5 +409,42 @@ describe('rules run transfer protection', () => {
       cli(['rules', 'list']).stdout,
     );
     expect(list.data.some(rule => rule.id === bogusId)).toBe(false);
-  }, 30000);
+  });
+
+  it('prints the rule-create envelope before the run output for create --run', () => {
+    createLocalBudget(testEnv, 'RuleCreateRunBudget');
+
+    const group = parseJsonOutput<{ id: string }>(
+      cli(['categories', 'create-group', 'Spending']).stdout,
+    );
+    const category = parseJsonOutput<{ id: string }>(
+      cli(['categories', 'create', 'Dining', '--group', group.id]).stdout,
+    );
+
+    const result = cli([
+      'rules',
+      'create',
+      JSON.stringify({
+        stage: null,
+        conditionsOp: 'and',
+        conditions: [{ field: 'imported_payee', op: 'contains', value: 'UBER' }],
+        actions: [{ field: 'category', op: 'set', value: category.id }],
+      }),
+      '--run',
+    ]);
+    expect(result.exitCode).toBe(0);
+    const firstLine = result.stdout.trim().split('\n')[0];
+    const envelope = JSON.parse(firstLine) as {
+      status: string;
+      entity: string;
+      action: string;
+      id?: string;
+    };
+    expect(envelope).toMatchObject({
+      status: 'ok',
+      entity: 'rule',
+      action: 'create',
+    });
+    expect(envelope.id).toBeTruthy();
+  });
 });

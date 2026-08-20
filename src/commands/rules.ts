@@ -12,7 +12,9 @@ import {
 import { withBudget } from '../budget.js';
 import { deleteDraft, readDraft, writeDraft } from '../drafts.js';
 import { printDraftValidationErrors, printRows, printStatusOk } from '../output.js';
+import { guardedBatchUpdate } from '../mutation-guard.js';
 import { createMutationSnapshot } from '../snapshots.js';
+import { getCategoryIrrelevantTransferIds } from '../transfer-safety.js';
 import {
   buildNameMaps,
   enrichRows,
@@ -440,17 +442,31 @@ async function matchedRuleIdForTransaction(
   return '';
 }
 
-function partitionTransfers(
+async function partitionSingleRuleTransfers(
   transactions: Array<Record<string, unknown>>,
+  actions: unknown[],
   includeTransfers: boolean,
-): { kept: Array<Record<string, unknown>>; skippedTransfers: number } {
+): Promise<{ kept: Array<Record<string, unknown>>; skippedTransfers: number }> {
   if (includeTransfers) {
     return { kept: transactions, skippedTransfers: 0 };
   }
+  const actionFields = actions
+    .filter(action => action && typeof action === 'object')
+    .map(action => (action as Record<string, unknown>).field)
+    .filter((field): field is string => typeof field === 'string');
+  const changesPayee = actionFields.includes('payee');
+  const categoryOnly = actionFields.length > 0 &&
+    actionFields.every(field => field === 'category');
+  const categoryIrrelevantIds = categoryOnly
+    ? await getCategoryIrrelevantTransferIds(transactions)
+    : new Set<string>();
   const kept: Array<Record<string, unknown>> = [];
   let skippedTransfers = 0;
   for (const tx of transactions) {
-    if (tx.transfer_id) {
+    if (
+      tx.transfer_id &&
+      (changesPayee || categoryIrrelevantIds.has(String(tx.id)))
+    ) {
       skippedTransfers += 1;
     } else {
       kept.push(tx);
@@ -471,31 +487,6 @@ async function applySingleRule(
   })) as Record<string, unknown> | null;
   if (!rule) {
     throw new CliError(`Rule not found: ${ruleId}`, ErrorCodes.ENTITY_NOT_FOUND);
-  }
-
-  const result = await api.aqlQuery(
-    api.q('transactions')
-      .filter({ category: null })
-      .select(['*'])
-      .orderBy({ date: 'desc' }) as Parameters<typeof api.aqlQuery>[0],
-  );
-  const fetched = ((result as { data?: unknown }).data ?? []) as Array<
-    Record<string, unknown>
-  >;
-  const { kept: uncategorized, skippedTransfers } = partitionTransfers(
-    fetched,
-    includeTransfers,
-  );
-
-  if (uncategorized.length === 0) {
-    printStatusOk({
-      entity: 'rules-run',
-      rule: ruleId,
-      matched: 0,
-      updated: 0,
-      skipped_transfers: skippedTransfers,
-    });
-    return;
   }
 
   const conditions = rule.conditions as unknown[];
@@ -528,7 +519,7 @@ async function applySingleRule(
     Record<string, unknown>
   >;
   const { kept: matched, skippedTransfers: skippedMatchedTransfers } =
-    partitionTransfers(matchedRaw, includeTransfers);
+    await partitionSingleRuleTransfers(matchedRaw, actions, includeTransfers);
 
   if (matched.length === 0) {
     printStatusOk({
@@ -553,17 +544,39 @@ async function applySingleRule(
           'rules-run',
         )
       : undefined;
-    const applyResult = (await send('rule-apply-actions', {
-      transactions: matched,
-      actions,
-    })) as { updated?: unknown[] };
+    if (format === 'table') {
+      // Print the preview before applying so a mid-apply failure still
+      // leaves a record of which transactions were being mutated.
+      printRows(format, 'rules-run-preview', previewRows, APPLY_COLUMNS);
+    }
+    let applyResult: { updated?: unknown[] };
+    try {
+      applyResult = (await send('rule-apply-actions', {
+        transactions: matched,
+        actions,
+      })) as { updated?: unknown[] };
+    } catch (error) {
+      if (format === 'json') {
+        // Audit trail for the partially-applied state: the targeted rows and
+        // the snapshot to restore from. The error envelope follows.
+        printRows(format, 'rules-run-preview', previewRows, APPLY_COLUMNS, {
+          rule: ruleId,
+          matched: previewRows.length,
+          updated: 0,
+          skipped_transfers: skippedMatchedTransfers,
+          snapshot,
+        });
+      }
+      throw error;
+    }
     const appliedRows = buildRuleApplyOutputRows(
       matched,
       asRecordRows(applyResult.updated),
       ruleId,
     );
+    await enrichRuleApplyRows(appliedRows);
     if (format === 'json') {
-      printRows(format, 'rules-run', previewRows, APPLY_COLUMNS, {
+      printRows(format, 'rules-run', appliedRows, APPLY_COLUMNS, {
         rule: ruleId,
         matched: appliedRows.length,
         updated: appliedRows.length,
@@ -572,7 +585,6 @@ async function applySingleRule(
         snapshot,
       });
     } else {
-      printRows(format, 'rules-run-preview', previewRows, APPLY_COLUMNS);
       printStatusOk({
         entity: 'rules-run-result',
         rule: ruleId,
@@ -732,7 +744,7 @@ Use this to verify a rule before committing it with "rules create".`,
     .option('--and-commit', 'Preview then commit in one call')
     .option(
       '--include-transfers',
-      'Also run rules on transfer-linked transactions (DANGEROUS: a payee-set action deletes the linked half in the other account)',
+      'Override transfer safety (DANGEROUS: a payee-set action deletes the linked half in the other account)',
     )
     .description('Run rules retroactively on uncategorized transactions')
     .addHelpText(
@@ -748,11 +760,13 @@ Finds uncategorized transactions and runs rules against them.
 Only transactions where rules change one of these fields are reported:
 category, payee, notes, or cleared.
 
-Transfer-linked transactions are skipped by default (they are always
-uncategorized, and overwriting a transfer's payee deletes the linked
-transaction in the other account). The number skipped is reported as
-skipped_transfers. Pass --include-transfers only if you are certain no
-rule sets the payee field on a transfer.
+Transfer-linked transactions are protected selectively. Rules that change a
+transfer payee are skipped because Actual would delete the linked half. A
+category-only rule is skipped when both accounts share on/off-budget status,
+because Actual clears that category; the on-budget half of a mixed transfer
+remains eligible.
+The number of matching transfers omitted for either reason is reported as
+skipped_transfers. --include-transfers overrides these protections.
 
 Output includes payee_before/payee_after, category_before/category_after,
 and matched_rule.`,
@@ -800,10 +814,11 @@ and matched_rule.`,
             const fetched = ((result as { data?: unknown }).data ?? []) as Array<
               Record<string, unknown>
             >;
-            const { kept: uncategorized, skippedTransfers } = partitionTransfers(
-              fetched,
-              includeTransfers,
-            );
+            const uncategorized = fetched;
+            const categoryIrrelevantIds = includeTransfers
+              ? new Set<string>()
+              : await getCategoryIrrelevantTransferIds(uncategorized);
+            let skippedTransfers = 0;
 
             if (uncategorized.length === 0) {
               printStatusOk({
@@ -825,6 +840,20 @@ and matched_rule.`,
 
               const diff = extractRuleDiff(tx, after);
               if (Object.keys(diff).length === 0) {
+                continue;
+              }
+              if (
+                !includeTransfers &&
+                tx.transfer_id &&
+                (
+                  Object.prototype.hasOwnProperty.call(diff, 'payee') ||
+                  (
+                    categoryIrrelevantIds.has(String(tx.id)) &&
+                    Object.keys(diff).every(field => field === 'category')
+                  )
+                )
+              ) {
+                skippedTransfers += 1;
                 continue;
               }
 
@@ -865,48 +894,52 @@ and matched_rule.`,
               }));
 
             if (andCommit) {
-              const snapshot = changed.length > 0
-                ? await createMutationSnapshot(
-                    resolved.dataDir,
-                    resolved.budgetId!,
-                    'rules-run',
-                  )
-                : undefined;
-              if (changed.length > 0) {
-                await send('transactions-batch-update', { updated: buildUpdates() });
+              if (format === 'table') {
+                // Print the preview before applying so a mid-apply failure
+                // still leaves a record of the targeted transactions.
+                printRows(format, 'rules-run-preview', changed, APPLY_COLUMNS);
               }
+              const { snapshot, updatedCount } = await guardedBatchUpdate(
+                { dataDir: resolved.dataDir, budgetId: resolved.budgetId! },
+                'rules-run',
+                buildUpdates(),
+                snapshotPath => {
+                  if (format === 'json') {
+                    printRows(format, 'rules-run-preview', changed, APPLY_COLUMNS, {
+                      matched: changed.length,
+                      updated: 0,
+                      skipped_transfers: skippedTransfers,
+                      snapshot: snapshotPath,
+                    });
+                  }
+                },
+              );
               if (format === 'json') {
                 printRows(format, 'rules-run', changed, APPLY_COLUMNS, {
                   matched: changed.length,
-                  updated: changed.length,
+                  updated: updatedCount,
                   dryRun: 0,
                   skipped_transfers: skippedTransfers,
                   snapshot,
                 });
               } else {
-                printRows(format, 'rules-run-preview', changed, APPLY_COLUMNS);
                 printStatusOk({
                   entity: 'rules-run-result',
                   matched: changed.length,
-                  updated: changed.length,
+                  updated: updatedCount,
                   skipped_transfers: skippedTransfers,
                   snapshot,
                 });
               }
             } else {
-              const snapshot = changed.length > 0 && !dryRun
-                ? await createMutationSnapshot(
-                    resolved.dataDir,
-                    resolved.budgetId!,
-                    'rules-run',
-                  )
-                : undefined;
-              if (changed.length > 0 && !dryRun) {
-                await send('transactions-batch-update', { updated: buildUpdates() });
-              }
+              const { snapshot, updatedCount } = await guardedBatchUpdate(
+                { dataDir: resolved.dataDir, budgetId: resolved.budgetId! },
+                'rules-run',
+                dryRun ? [] : buildUpdates(),
+              );
               printRows(format, 'rules-run', changed, APPLY_COLUMNS, {
                 matched: changed.length,
-                updated: dryRun ? 0 : changed.length,
+                updated: dryRun ? 0 : updatedCount,
                 dryRun: dryRun ? 1 : 0,
                 skipped_transfers: skippedTransfers,
                 snapshot,
@@ -991,6 +1024,14 @@ See "rules list --help" for conditions/actions schema.`,
             const created = (await api.createRule(
               rule as unknown as Parameters<typeof api.createRule>[0],
             )) as { id?: string };
+            // The create envelope is the documented contract for this command
+            // (consumers extract .id from it); with --run, the rules-run
+            // document follows it.
+            printStatusOk({
+              entity: 'rule',
+              action: 'create',
+              id: created?.id,
+            });
             if (options.run && created?.id) {
               await applySingleRule(
                 created.id,
@@ -999,13 +1040,7 @@ See "rules list --help" for conditions/actions schema.`,
                 false,
                 { dataDir: resolved.dataDir, budgetId: resolved.budgetId! },
               );
-              return;
             }
-            printStatusOk({
-              entity: 'rule',
-              action: 'create',
-              id: created?.id,
-            });
           },
         );
       }),

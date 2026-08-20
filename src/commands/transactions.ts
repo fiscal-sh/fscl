@@ -2,7 +2,14 @@ import { api } from '../actual-api.js';
 import { Command } from 'commander';
 import { z } from 'zod';
 
-import { asDate, commandAction, getFormat, getSessionOptions } from '../cli.js';
+import {
+  asDate,
+  CliError,
+  commandAction,
+  ErrorCodes,
+  getFormat,
+  getSessionOptions,
+} from '../cli.js';
 import { parseAmount, withBudget } from '../budget.js';
 import { deleteDraft, readDraft, writeDraft } from '../drafts.js';
 import {
@@ -11,7 +18,7 @@ import {
   printStatusErr,
   printStatusOk,
 } from '../output.js';
-import { planTransactionUpdates } from '../mutation-guard.js';
+import { guardedBatchUpdate, planTransactionUpdates } from '../mutation-guard.js';
 import { parseAmountFields } from '../parsers/amounts.js';
 import {
   detectCsvMappings,
@@ -26,6 +33,10 @@ import type {
   StructuredImportTransaction,
 } from '../parsers/types.js';
 import { createMutationSnapshot } from '../snapshots.js';
+import {
+  getCategoryIrrelevantTransferIds,
+  partitionCategoryRelevantTransactions,
+} from '../transfer-safety.js';
 import {
   buildNameMaps,
   enrichRows,
@@ -231,14 +242,16 @@ function toNumber(value: unknown): number {
 }
 
 async function queryUncategorizedCount(accountId?: string): Promise<number> {
-  let query = api.q('transactions').filter({ category: null });
+  let query = api.q('transactions').filter({ category: null }).select(['*']);
   if (accountId) {
     query = query.filter({ account: accountId });
   }
-  query = query.select([{ count: { $count: '$id' } }] as never);
   const result = await api.aqlQuery(query as Parameters<typeof api.aqlQuery>[0]);
-  const rows = ((result as { data?: unknown }).data ?? []) as Array<{ count?: unknown }>;
-  return toNumber(rows[0]?.count);
+  const rows = ((result as { data?: unknown }).data ?? []) as Array<
+    Record<string, unknown>
+  >;
+  const { kept } = await partitionCategoryRelevantTransactions(rows);
+  return kept.length;
 }
 
 function parsePositiveAmount(input: string): number {
@@ -689,16 +702,15 @@ async function importTransactionsCommand(
       ...(format === 'json' && showRows ? { rows: transactions } : {}),
       ...(format === 'json' && showReport ? { report } : {}),
     };
-    if (errorMessages.length > 0) {
-      printStatusErr('Import completed with errors', {
-        code: 'OPERATION_FAILED',
-        ...output,
-        error_messages: errorMessages,
-      });
-      process.exitCode = 1;
-    } else {
-      printStatusOk(output);
-    }
+    // Row-level errors are data, not command failure: rows may already be
+    // committed, and a status:'err' envelope reads as "the import failed,
+    // re-run it" — which duplicates the committed rows. The documented
+    // contract is status:'ok' with an errors count.
+    printStatusOk(
+      errorMessages.length > 0
+        ? { ...output, error_messages: errorMessages }
+        : output,
+    );
     if (format === 'table' && showRows) {
       printRows(format, 'import-rows', transactions as unknown as Array<Record<string, unknown>>, [
         'date', 'amount', 'payee_name', 'category', 'notes',
@@ -783,7 +795,9 @@ Example:
   fiscal transactions uncategorized --account acct-abc123 --start 2025-07-01
 
 Output columns: same as "transactions list".
-Returns only transactions with no category assigned.`,
+Returns transactions with no category assigned, excluding transfers between
+accounts that share on/off-budget status because Actual clears their category.
+The on-budget half of a mixed transfer remains eligible for categorization.`,
     )
     .action(
       commandAction(async (options: UncategorizedOptions, ...args: unknown[]) => {
@@ -811,9 +825,12 @@ Returns only transactions with no category assigned.`,
           const result = await api.aqlQuery(
             query as Parameters<typeof api.aqlQuery>[0],
           );
-          const rows = ((result as { data?: unknown }).data ?? []) as Array<
+          const fetched = ((result as { data?: unknown }).data ?? []) as Array<
             Record<string, unknown>
           >;
+          const { kept: rows } = await partitionCategoryRelevantTransactions(
+            fetched,
+          );
 
           await enrichTransactions(rows);
           printRows(format, 'transactions', rows, TRANSACTION_COLUMNS);
@@ -842,6 +859,10 @@ Examples:
 Writes a JSON file to <dataDir>/<budgetId>/drafts/categorize.json.
 Each entry has "id" and "category" fields, plus a "_meta" field with
 context (date, amount, payee, account, notes).
+
+Transfers between accounts that share on/off-budget status are omitted because
+Actual clears their category. The on-budget half of a mixed transfer remains
+eligible.
 
 Fill in the "category" fields with category IDs, then run:
   fiscal transactions categorize apply
@@ -880,9 +901,12 @@ transactions that match existing rules.`,
           const result = await api.aqlQuery(
             query as Parameters<typeof api.aqlQuery>[0],
           );
-          let rows = ((result as { data?: unknown }).data ?? []) as Array<
+          const fetched = ((result as { data?: unknown }).data ?? []) as Array<
             Record<string, unknown>
           >;
+          let { kept: rows } = await partitionCategoryRelevantTransactions(
+            fetched,
+          );
 
           if (options.limit != null) {
             const limit = Number(options.limit);
@@ -970,6 +994,18 @@ transactions, and deletes the draft on success.`,
             category: entry.category,
           }));
           const plan = await planTransactionUpdates(updates);
+          const currentRows = updates
+            .map(update => plan.currentById.get(update.id))
+            .filter((row): row is Record<string, unknown> => Boolean(row));
+          const irrelevantTransferIds = await getCategoryIrrelevantTransferIds(
+            currentRows,
+          );
+          if (irrelevantTransferIds.size > 0) {
+            throw new CliError(
+              `Refusing category updates for transfer-linked transactions whose accounts share on/off-budget status: ${[...irrelevantTransferIds].join(', ')}. Regenerate the categorize draft; these transfers do not accept categories.`,
+              ErrorCodes.INVALID_INPUT,
+            );
+          }
           const plannedIds = new Set(plan.updates.map(update => update.id));
 
           if (dryRun) {
@@ -987,19 +1023,11 @@ transactions, and deletes the draft on success.`,
             return;
           }
 
-          const snapshot = plan.updates.length > 0
-            ? await createMutationSnapshot(
-                resolved.dataDir,
-                resolved.budgetId,
-                'transactions-categorize-apply',
-              )
-            : undefined;
-          const batchResult = plan.updates.length > 0
-            ? (await send('transactions-batch-update', {
-                updated: plan.updates,
-              })) as { updated?: unknown[] }
-            : { updated: [] };
-          const updatedCount = batchResult.updated?.length ?? 0;
+          const { snapshot, updatedCount } = await guardedBatchUpdate(
+            { dataDir: resolved.dataDir, budgetId: resolved.budgetId },
+            'transactions-categorize-apply',
+            plan.updates,
+          );
 
           deleteDraft(resolved.dataDir, resolved.budgetId, 'categorize.json');
 
@@ -1274,19 +1302,11 @@ batch-updates cleared/reconciled flags, and deletes the draft on success.`,
             );
             return;
           }
-          const snapshot = plan.updates.length > 0
-            ? await createMutationSnapshot(
-                resolved.dataDir,
-                resolved.budgetId,
-                'transactions-reconcile-apply',
-              )
-            : undefined;
-          const batchResult = plan.updates.length > 0
-            ? (await send('transactions-batch-update', {
-                updated: plan.updates,
-              })) as { updated?: unknown[] }
-            : { updated: [] };
-          const updatedCount = batchResult.updated?.length ?? 0;
+          const { snapshot, updatedCount } = await guardedBatchUpdate(
+            { dataDir: resolved.dataDir, budgetId: resolved.budgetId },
+            'transactions-reconcile-apply',
+            plan.updates,
+          );
           deleteDraft(resolved.dataDir, resolved.budgetId, 'reconcile.json');
           printRows(
             format,
@@ -1572,19 +1592,11 @@ destructive behavior. The draft is deleted on success.`,
             return;
           }
 
-          const snapshot = plan.updates.length > 0
-            ? await createMutationSnapshot(
-                resolved.dataDir,
-                resolved.budgetId,
-                'transactions-edit-apply',
-              )
-            : undefined;
-          const batchResult = plan.updates.length > 0
-            ? (await send('transactions-batch-update', {
-                updated: plan.updates,
-              })) as { updated?: unknown[] }
-            : { updated: [] };
-          const updatedCount = batchResult.updated?.length ?? 0;
+          const { snapshot, updatedCount } = await guardedBatchUpdate(
+            { dataDir: resolved.dataDir, budgetId: resolved.budgetId },
+            'transactions-edit-apply',
+            plan.updates,
+          );
 
           deleteDraft(resolved.dataDir, resolved.budgetId, 'edit.json');
 

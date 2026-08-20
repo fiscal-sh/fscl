@@ -185,7 +185,7 @@ describe('transactions happy path', () => {
     expect(uncategorized.status).toBe('ok');
     expect(uncategorized.entity).toBe('transactions');
     expect(uncategorized.count).toBe(0);
-  }, 20000);
+  });
 
   it('lists and applies reconciliation draft for unreconciled transactions', () => {
     createLocalBudget(testEnv, 'ReconcileBudget');
@@ -294,7 +294,7 @@ describe('transactions happy path', () => {
     expect(reconciled).toBeDefined();
     expect(reconciled?.cleared).toBe(true);
     expect(reconciled?.reconciled).toBe(true);
-  }, 20000);
+  });
 
   it('creates a linked transfer between accounts', () => {
     createLocalBudget(testEnv, 'TransferBudget');
@@ -410,6 +410,100 @@ describe('transactions happy path', () => {
       ),
     ).toBe(true);
 
+    const uncategorized = parseJsonOutput<TransactionListOutput>(
+      runCli(
+        [
+          '--data-dir',
+          testEnv.dataDir,
+          '--json',
+          'transactions',
+          'uncategorized',
+          '--start',
+          '2026-02-01',
+          '--end',
+          '2026-02-28',
+        ],
+        undefined,
+        testEnv.env,
+      ).stdout,
+    );
+    expect(uncategorized.data).toHaveLength(0);
+
+    const categorizeDraft = parseJsonOutput<{ path: string; entries: number }>(
+      runCli(
+        [
+          '--data-dir',
+          testEnv.dataDir,
+          '--json',
+          'transactions',
+          'categorize',
+          'draft',
+          '--start',
+          '2026-02-01',
+          '--end',
+          '2026-02-28',
+        ],
+        undefined,
+        testEnv.env,
+      ).stdout,
+    );
+    expect(categorizeDraft.entries).toBe(0);
+    expect(JSON.parse(readFileSync(categorizeDraft.path, 'utf8'))).toEqual([]);
+
+    const group = parseJsonOutput<CategoryGroupCreateOutput>(
+      runCli(
+        [
+          '--data-dir',
+          testEnv.dataDir,
+          '--json',
+          'categories',
+          'create-group',
+          'Spending',
+        ],
+        undefined,
+        testEnv.env,
+      ).stdout,
+    );
+    const category = parseJsonOutput<CategoryCreateOutput>(
+      runCli(
+        [
+          '--data-dir',
+          testEnv.dataDir,
+          '--json',
+          'categories',
+          'create',
+          'Transfer category',
+          '--group',
+          group.id,
+        ],
+        undefined,
+        testEnv.env,
+      ).stdout,
+    );
+    const checkingTransfer = checkingList.data.find(row => row.transfer_id);
+    expect(checkingTransfer).toBeDefined();
+    writeFileSync(
+      categorizeDraft.path,
+      JSON.stringify([{ id: checkingTransfer!.id, category: category.id }]),
+    );
+    const guardedApply = runCli(
+      [
+        '--data-dir',
+        testEnv.dataDir,
+        '--json',
+        'transactions',
+        'categorize',
+        'apply',
+        '--dry-run',
+      ],
+      undefined,
+      testEnv.env,
+    );
+    expect(guardedApply.exitCode).not.toBe(0);
+    expect(
+      parseJsonOutput<{ message: string }>(guardedApply.stdout).message,
+    ).toContain('Refusing category updates for transfer-linked transactions');
+
     const draftResult = runCli(
       [
         '--data-dir',
@@ -516,7 +610,7 @@ describe('transactions happy path', () => {
     expect(
       savingsAfter.data.some(row => row.amount === 10000 && row.transfer_id),
     ).toBe(true);
-  }, 40000);
+  });
 
   it('emits one JSON document for an import with rows and report', () => {
     createLocalBudget(testEnv, 'ImportOutputBudget');
@@ -562,5 +656,5 @@ describe('transactions happy path', () => {
     expect(output.rows).toHaveLength(1);
     expect(output.rows[0].amount).toBe(-1234);
     expect(output.report.dry_run).toBe(1);
-  }, 30000);
+  });
 });

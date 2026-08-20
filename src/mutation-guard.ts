@@ -1,6 +1,8 @@
 import { api } from './actual-api.js';
 
 import { CliError, ErrorCodes } from './cli.js';
+import { send } from './commands/common.js';
+import { createMutationSnapshot } from './snapshots.js';
 
 export type TransactionUpdate = {
   id: string;
@@ -19,6 +21,44 @@ export type TransactionUpdatePlan = {
 
 function valuesEqual(left: unknown, right: unknown): boolean {
   return left === right || (left == null && right == null);
+}
+
+export type GuardedBatchUpdateResult = {
+  snapshot?: string;
+  updatedCount: number;
+};
+
+/**
+ * The one path for bulk transaction writes: snapshot first, then batch
+ * update, so the two can never diverge (a write without its safety snapshot,
+ * or a snapshot for a write that never happens). No-op when `updates` is
+ * empty. `onError` runs before a batch-update failure propagates, receiving
+ * the snapshot path so failure output can point at the recovery file.
+ */
+export async function guardedBatchUpdate(
+  context: { dataDir: string; budgetId: string },
+  action: string,
+  updates: Array<Record<string, unknown>>,
+  onError?: (snapshot: string, error: unknown) => void,
+): Promise<GuardedBatchUpdateResult> {
+  if (updates.length === 0) {
+    return { updatedCount: 0 };
+  }
+  const snapshot = await createMutationSnapshot(
+    context.dataDir,
+    context.budgetId,
+    action,
+  );
+  try {
+    await send('transactions-batch-update', { updated: updates });
+    // The handler's return lists transfer-related rows, not what was written;
+    // the batch either applies fully or throws, so the sent count is the
+    // truthful updated count.
+    return { snapshot, updatedCount: updates.length };
+  } catch (error) {
+    onError?.(snapshot, error);
+    throw error;
+  }
 }
 
 /**
@@ -41,8 +81,12 @@ export async function planTransactionUpdates(
     );
   }
 
+  const requestedIds = requested.map(update => update.id);
   const result = await api.aqlQuery(
-    api.q('transactions').select(['*']) as Parameters<typeof api.aqlQuery>[0],
+    api
+      .q('transactions')
+      .filter({ id: { $oneof: requestedIds } })
+      .select(['*']) as Parameters<typeof api.aqlQuery>[0],
   );
   const rows = ((result as { data?: unknown }).data ?? []) as Array<
     Record<string, unknown>

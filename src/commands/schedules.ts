@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { commandAction, getFormat, getSessionOptions } from '../cli.js';
 import { withBudget } from '../budget.js';
+import { todayLocalDateString } from '../dates.js';
 import {
   readScheduleReviews,
   ScheduleReviewInputSchema,
@@ -18,17 +19,86 @@ import {
   requireYes,
 } from './common.js';
 
-const ScheduleCreateSchema = z.record(z.string(), z.unknown()).refine(
+const ScheduleAmountOpSchema = z.enum(['is', 'isapprox', 'isbetween'], {
+  error: 'Invalid amountOp. Expected: is, isapprox, or isbetween',
+});
+const ScheduleAmountRangeSchema = z.object({
+  num1: z.number().finite('num1 must be a finite decimal number'),
+  num2: z.number().finite('num2 must be a finite decimal number'),
+}).strict();
+const ScheduleAmountSchema = z.union([
+  z.number().finite('Schedule amount must be a finite decimal number'),
+  ScheduleAmountRangeSchema,
+]);
+const ScheduleDateSchema = z.record(z.string(), z.unknown()).refine(
   value => Object.keys(value).length > 0,
-  { message: 'Schedule payload must be a JSON object' },
+  { message: 'date must be a non-empty recurrence object' },
 );
 
-const ScheduleUpdateSchema = z.record(z.string(), z.unknown()).refine(
+function validateAmountState(
+  amount: number | { num1: number; num2: number },
+  amountOp: z.infer<typeof ScheduleAmountOpSchema>,
+  ctx: z.RefinementCtx,
+): void {
+  const isRange = typeof amount === 'object';
+  if (amountOp === 'isbetween' && !isRange) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['amount'],
+      message: 'amountOp "isbetween" requires amount {"num1":..,"num2":..}',
+    });
+  } else if (amountOp !== 'isbetween' && isRange) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['amount'],
+      message: `amountOp "${amountOp}" requires a scalar amount`,
+    });
+  }
+}
+
+const ScheduleFieldsSchema = z.object({
+  name: z.string().optional(),
+  posts_transaction: z.boolean().optional(),
+  account: z.string().min(1, 'account is required').optional(),
+  payee: z.string().min(1, 'payee is required').optional(),
+  amount: ScheduleAmountSchema.optional(),
+  amountOp: ScheduleAmountOpSchema.optional(),
+  date: ScheduleDateSchema.optional(),
+}).strict();
+
+const ScheduleCreateSchema = ScheduleFieldsSchema.superRefine((value, ctx) => {
+  for (const field of ['account', 'payee', 'date'] as const) {
+    if (value[field] === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [field],
+        message: `${field} is required`,
+      });
+    }
+  }
+  const amount = value.amount ?? 0;
+  const amountOp = value.amountOp ??
+    (typeof amount === 'object' ? 'isbetween' : 'isapprox');
+  validateAmountState(amount, amountOp, ctx);
+});
+
+const ScheduleUpdateSchema = ScheduleFieldsSchema.refine(
   value => Object.keys(value).length > 0,
   { message: 'Schedule update payload must be a non-empty JSON object' },
-);
+).superRefine((value, ctx) => {
+  if (value.amount !== undefined && value.amountOp !== undefined) {
+    validateAmountState(value.amount, value.amountOp, ctx);
+  }
+});
 
-const SCHEDULE_AMOUNT_OPS = new Set(['is', 'isapprox', 'isbetween']);
+const ScheduleAmountStateSchema = z.object({
+  amount: ScheduleAmountSchema,
+  amountOp: ScheduleAmountOpSchema,
+}).superRefine((value, ctx) => {
+  validateAmountState(value.amount, value.amountOp, ctx);
+});
+
+type ScheduleFields = z.infer<typeof ScheduleFieldsSchema>;
 
 /**
  * Convert decimal-dollar amounts to integer minor units and validate amountOp.
@@ -36,61 +106,46 @@ const SCHEDULE_AMOUNT_OPS = new Set(['is', 'isapprox', 'isbetween']);
  * an absent or invalid amountOp produces a corrupt rule that fails to load.
  */
 function normalizeScheduleAmountFields(
-  payload: Record<string, unknown>,
+  payload: ScheduleFields,
 ): Record<string, unknown> {
   const next = { ...payload };
   if (next.amount !== undefined) {
     const amount = next.amount;
     if (typeof amount === 'number') {
-      if (!Number.isFinite(amount)) {
-        throw new Error('Schedule amount must be a finite decimal number (e.g. -15.99)');
-      }
       next.amount = api.utils.amountToInteger(amount);
-    } else if (amount && typeof amount === 'object') {
-      const range = amount as Record<string, unknown>;
-      if (typeof range.num1 !== 'number' || typeof range.num2 !== 'number') {
-        throw new Error(
-          'Schedule amount must be a decimal number (e.g. -15.99), or {"num1":..,"num2":..} decimals for amountOp "isbetween"',
-        );
-      }
-      next.amount = {
-        num1: api.utils.amountToInteger(range.num1),
-        num2: api.utils.amountToInteger(range.num2),
-      };
     } else {
-      throw new Error('Schedule amount must be a decimal number (e.g. -15.99)');
+      next.amount = {
+        num1: api.utils.amountToInteger(amount.num1),
+        num2: api.utils.amountToInteger(amount.num2),
+      };
     }
-  }
-  if (
-    next.amountOp !== undefined &&
-    !SCHEDULE_AMOUNT_OPS.has(String(next.amountOp))
-  ) {
-    throw new Error(
-      `Invalid amountOp: ${String(next.amountOp)}. Expected: is, isapprox, or isbetween`,
-    );
   }
   return next;
 }
 
 function normalizeScheduleCreatePayload(
-  payload: Record<string, unknown>,
+  payload: ScheduleFields,
 ): Record<string, unknown> {
-  const next = normalizeScheduleAmountFields(payload);
-  for (const field of ['payee', 'account', 'date'] as const) {
-    if (next[field] == null || next[field] === '') {
-      throw new Error(
-        `Schedule ${field} is required. Example: {"account":"<acct-id>","payee":"<payee-id>","amount":-15.99,"date":{"frequency":"monthly","start":"2026-01-01","interval":1}}`,
-      );
-    }
+  const amount = payload.amount ?? 0;
+  return normalizeScheduleAmountFields({
+    ...payload,
+    amount,
+    amountOp: payload.amountOp ??
+      (typeof amount === 'object' ? 'isbetween' : 'isapprox'),
+  });
+}
+
+function assertValidStoredAmountState(
+  amount: unknown,
+  amountOp: unknown,
+): void {
+  const result = ScheduleAmountStateSchema.safeParse({ amount, amountOp });
+  if (!result.success) {
+    const details = result.error.issues
+      .map(issue => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ');
+    throw new Error(`Invalid schedule amount state: ${details}`);
   }
-  if (next.amount === undefined) {
-    next.amount = 0;
-  }
-  if (next.amountOp === undefined) {
-    next.amountOp =
-      next.amount && typeof next.amount === 'object' ? 'isbetween' : 'isapprox';
-  }
-  return next;
 }
 
 const SCHEDULE_COLUMNS = [
@@ -144,17 +199,6 @@ function findScheduleById(
     );
   }
   return found;
-}
-
-function toLocalDateString(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function todayLocalDateString(): string {
-  return toLocalDateString(new Date());
 }
 
 function utcMidnightMs(dateStr: string): number | null {
@@ -549,8 +593,8 @@ Example:
 
 Valid decisions: keep, cancel, pause
 cadenceMonths sets how many months until next review (default: 3).
-Reviews are stored in a structured block in the schedule's synced budget note.
-Any existing fiscal.json review is migrated automatically.`,
+Reviews are stored in a structured block in the schedule's synced budget note,
+so they follow the budget across devices and are included in exports.`,
     )
     .action(
       commandAction(async (id: string, reviewJson: string, ...args: unknown[]) => {
@@ -603,14 +647,17 @@ Example:
 
 Shows review status for all schedules, joined with live schedule data.
 With --due, only shows schedules that have never been reviewed or whose
-next_review_at has passed.`,
+next_review_at has passed.
+
+Reviews are read from each schedule's synced budget note; legacy fiscal.json
+entries are used as a read-only fallback until the schedule is reviewed again.`,
     )
     .action(
       commandAction(async (options: { due?: boolean }, ...args: unknown[]) => {
         const cmd = getActionCommand(args);
         const format = getFormat(cmd);
         const session = getSessionOptions(cmd);
-        await withBudget({ ...session, write: true }, async resolved => {
+        await withBudget(session, async resolved => {
           const today = todayLocalDateString();
           const [allSchedules, { accountNames, payeeNames }] = await Promise.all(
             [
@@ -724,8 +771,8 @@ Example:
   fiscal schedules update sch-abc123 '{"amount":-16.99}'
 
 amount is in decimal currency units (-16.99 = an outflow of 16.99). If the
-schedule's stored amount operator is missing or invalid (e.g. created by an
-older fscl version), it is repaired to "isapprox" in the same update.`,
+update changes amount or amountOp, the resulting pair must remain valid:
+"isbetween" requires a range; "is" and "isapprox" require a scalar.`,
     )
     .action(
       commandAction(async (id: string, fieldsJson: string, ...args: unknown[]) => {
@@ -741,18 +788,14 @@ older fscl version), it is repaired to "isapprox" in the same update.`,
         await withBudget(
           { ...session, write: true },
           async () => {
-            if (fields.amount !== undefined && fields.amountOp === undefined) {
-              const allSchedules = (await api.getSchedules()) as Array<
-                Record<string, unknown>
-              >;
-              const schedule = findScheduleById(allSchedules, id);
-              if (!SCHEDULE_AMOUNT_OPS.has(String(schedule.amountOp))) {
-                fields.amountOp =
-                  fields.amount && typeof fields.amount === 'object'
-                    ? 'isbetween'
-                    : 'isapprox';
-              }
-            }
+            const allSchedules = (await api.getSchedules()) as Array<
+              Record<string, unknown>
+            >;
+            const schedule = findScheduleById(allSchedules, id);
+            assertValidStoredAmountState(
+              fields.amount ?? schedule.amount,
+              fields.amountOp ?? schedule.amountOp,
+            );
             await api.updateSchedule(
               id,
               fields as unknown as Parameters<typeof api.updateSchedule>[1],

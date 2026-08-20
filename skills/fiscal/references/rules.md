@@ -193,14 +193,14 @@ fscl rules run --rule <rule-id> --dry-run
 fscl rules run --rule <rule-id>
 ```
 
-**Transfer safety:** transfer-linked transactions are always uncategorized, so
-retroactive runs would otherwise process them — and a payee-set action
-overwriting a transfer's payee deletes the linked transaction in the other
-account. `rules run` therefore skips transfer-linked transactions by default
-and reports the count as `skipped_transfers`. Only pass `--include-transfers`
-when no matching rule sets the payee field. As a general design principle,
-prefer category-only actions in rules; reserve payee-set actions for payee
-name cleanup on plain transactions.
+**Transfer safety:** `rules run` skips a matching transfer when a rule would
+overwrite its payee, because Actual would delete the linked transaction in the
+other account. It also skips category-only matches when both accounts share
+on/off-budget status, because Actual clears those categories. Mixed-budget
+transfers remain eligible for category rules on their on-budget half. The omitted match count is
+reported as `skipped_transfers`. Only pass `--include-transfers` when the user
+explicitly accepts destructive unlinking. Prefer category-only actions in
+rules; reserve payee-set actions for payee name cleanup on plain transactions.
 
 ### 5. Update a rule
 

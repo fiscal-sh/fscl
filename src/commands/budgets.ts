@@ -1,12 +1,13 @@
 import { api } from '../actual-api.js';
 import * as p from '@clack/prompts';
 import { Command } from 'commander';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 import { CliError, ErrorCodes, commandAction, getFormat, getSessionOptions } from '../cli.js';
 import { getDefaultDataDir, readConfig, updateConfig } from '../config.js';
 import { withApi, withBudget } from '../budget.js';
+import { todayLocalDateString } from '../dates.js';
 import { printRows, printStatusOk } from '../output.js';
 import {
   budgetRows,
@@ -209,20 +210,22 @@ Example:
   fiscal budgets export ~/backups/my.zip
 
 Writes a full budget export (same format as the Actual UI's "Export budget"),
-suitable for backups or re-import via Actual.`,
+suitable for backups or re-import via Actual. When a server is configured,
+the budget is synced before the export is created.`,
     )
     .action(
       commandAction(async (path: string | undefined, ...args: unknown[]) => {
         const cmd = getActionCommand(args);
         const session = getSessionOptions(cmd);
-        await withBudget(session, async ({ budgetId }) => {
+        await withBudget(session, async ({ budgetId, serverURL }) => {
+          if (serverURL) {
+            await api.sync();
+          }
           const data = await api.exportBudget();
           const target =
             path && path.trim()
               ? path
-              : `${budgetId}-${new Date().toISOString().slice(0, 10)}.zip`;
-          const { writeFileSync, mkdirSync } = await import('node:fs');
-          const { dirname, resolve } = await import('node:path');
+              : `${budgetId}-${todayLocalDateString()}.zip`;
           const resolved = resolve(target);
           mkdirSync(dirname(resolved), { recursive: true });
           writeFileSync(resolved, data);

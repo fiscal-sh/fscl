@@ -96,16 +96,10 @@ export function commandAction<T extends unknown[]>(
         error instanceof Error
           ? error.message
           : 'An unexpected error occurred';
-      const errorCode =
-        error && typeof error === 'object' && 'code' in error
-          ? (error as { code?: unknown }).code
-          : undefined;
+      // Only CliError codes belong in the stable, documented `code` set;
+      // platform/library codes (EACCES, SQLITE_*) go in the message only.
       const code =
-        error instanceof CliError
-          ? error.code
-          : typeof errorCode === 'string' && errorCode
-            ? errorCode
-            : ErrorCodes.OPERATION_FAILED;
+        error instanceof CliError ? error.code : ErrorCodes.OPERATION_FAILED;
       printStatusErr(message, { code });
       process.exitCode = 1;
     }

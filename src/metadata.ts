@@ -96,7 +96,14 @@ function withScheduleReviewBlock(note: string, review: ScheduleReview): string {
   return humanNote ? `${humanNote}\n\n${block}` : block;
 }
 
-/** Read review metadata from synced notes, migrating sidecar-only reviews. */
+/**
+ * Read review metadata. Synced schedule notes are the source of truth; legacy
+ * fiscal.json sidecar entries are a read-only fallback for schedules whose
+ * reviews have not been re-recorded since the notes-based storage was
+ * introduced. This function never writes: neither the notes (a listing
+ * command must not mutate the budget) nor the sidecar (pruning it would
+ * discard review history for schedules no longer listed, e.g. deleted ones).
+ */
 export async function readScheduleReviews(
   dataDir: string,
   budgetId: string,
@@ -108,26 +115,14 @@ export async function readScheduleReviews(
   await Promise.all(
     scheduleIds.map(async scheduleId => {
       const entity = await api.getNote(scheduleId);
-      const currentNote = entity?.note ?? '';
-      const fromBudget = parseScheduleReviewBlock(currentNote);
-      if (fromBudget) {
-        reviews[scheduleId] = fromBudget;
-        return;
+      const fromBudget = parseScheduleReviewBlock(entity?.note ?? '');
+      const review = fromBudget ?? cached.scheduleReviews[scheduleId];
+      if (review) {
+        reviews[scheduleId] = review;
       }
-
-      const fromSidecar = cached.scheduleReviews[scheduleId];
-      if (!fromSidecar) {
-        return;
-      }
-      await api.updateNote(
-        scheduleId,
-        withScheduleReviewBlock(currentNote, fromSidecar),
-      );
-      reviews[scheduleId] = fromSidecar;
     }),
   );
 
-  writeMetadata(dataDir, budgetId, { scheduleReviews: reviews });
   return reviews;
 }
 

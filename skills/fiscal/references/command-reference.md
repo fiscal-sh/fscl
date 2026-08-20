@@ -124,7 +124,7 @@ Clears stored `serverURL` and `token`.
 | `budgets create [name]` | Create a new budget (interactive if name omitted) |
 | `budgets use <id>` | Set active budget |
 | `budgets delete <id>` | Delete local budget copy (`--yes` required) |
-| `budgets export [path]` | Write full budget backup zip (defaults to `./<budget-id>-<date>.zip`) |
+| `budgets export [path]` | Sync first when configured, then write full budget backup zip (defaults to `./<budget-id>-<local-date>.zip`) |
 | `budgets restore <path>` | Import an Actual zip as a new local budget and select it |
 | `budgets pull <syncId>` | Download remote budget, set active |
 | `budgets push` | Upload local budget to server |
@@ -162,7 +162,7 @@ Output columns: `id`, `name`, `offbudget`, `closed`, `balance_current`
 | Command | Key Flags |
 |---|---|
 | `transactions list <acctId>` | `--start`, `--end` (both required) |
-| `transactions uncategorized` | `--account <id>`, `--start`, `--end` |
+| `transactions uncategorized` | `--account <id>`, `--start`, `--end`; omits same-budget-status transfers that cannot retain categories |
 | `transactions add <acctId>` | `--date`, `--amount` (required); `--payee`, `--category`, `--notes`, `--cleared` |
 | `transactions transfer <fromAcct> <toAcct>` | `--date`, `--amount` (required); `--notes`, `--cleared`, `--category` |
 | `transactions reconcile list` | `--account`, `--start`, `--end`, `--limit` |
@@ -356,7 +356,7 @@ Output columns: `id`, `name`, `transfer_acct`
 | `rules list` | |
 | `rules validate <json>` | Validate without creating |
 | `rules preview <json>` | Show matching transactions |
-| `rules run` | `--rule <id>`, `--dry-run`, `--and-commit`, `--include-transfers` (transfer-linked transactions are skipped by default and reported as `skipped_transfers`) |
+| `rules run` | `--rule <id>`, `--dry-run`, `--and-commit`, `--include-transfers` (unsafe or category-irrelevant transfer matches are skipped by default and reported as `skipped_transfers`) |
 | `rules create <json>` | `--run` (apply retroactively) |
 | `rules create-batch <json>` | All validated before any created |
 | `rules draft` | Generate editable draft |
@@ -382,7 +382,7 @@ See [rules.md](rules.md) for JSON schema, stages, conditions, and actions.
 | `schedules review <id> <json>` | `{decision, note?, cadenceMonths?}` |
 | `schedules reviews` | `--due` (only unreviewed/due) |
 | `schedules create <json>` | Requires `account`, `payee`, `date`. `amount` in decimals (`-15.99`); `amountOp` defaults to `isapprox` |
-| `schedules update <id> <json>` | `amount` in decimals; a missing/invalid stored amount operator is repaired to `isapprox` automatically |
+| `schedules update <id> <json>` | `amount` in decimals; the resulting amount/operator pair must remain valid (`isbetween` = range, `is`/`isapprox` = scalar) |
 | `schedules delete <id>` | `--yes` (required) |
 
 List columns: `id`, `name`, `posts_transaction`, `next_date`, `amount`, `amount_op`, `account`, `account_name`, `payee`, `payee_name`, `date`
@@ -391,8 +391,9 @@ Summary columns: `id`, `name`, `payee_name`, `account_name`, `amount`, `frequenc
 Reviews columns: `schedule_id`, `name`, `payee_name`, `amount`, `decision`, `reviewed_at`, `next_review_at`, `cadence_months`, `note`, `days_until_review`
 
 Review metadata is stored in a structured block in each schedule's synced
-budget note and is included in budget exports. Existing `fiscal.json` reviews
-are migrated into notes automatically.
+budget note, so it follows the budget across devices and is included in
+budget exports. Recording a review with `schedules review` writes the note;
+`schedules reviews` is read-only.
 
 ## tags
 
@@ -447,4 +448,4 @@ Never hand-create a draft file by path. Generate it with the draft command, then
 | Code | Meaning |
 |---|---|
 | `0` | Success |
-| `1` | Failure (validation errors, partial import failures, etc.) |
+| `1` | Failure (validation errors, refused mutations, etc.). An import with row-level errors still exits `0` with `status: "ok"` and an `errors` count — committed rows are reported, not rolled back |

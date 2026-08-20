@@ -106,5 +106,5 @@ describe('accounts happy path', () => {
     expect(found.matches).toBeGreaterThanOrEqual(1);
     expect(found.data.some(row => row.id === created.id)).toBe(true);
     expect(found.data.find(row => row.id === created.id)?.balance_current).toBe(25055);
-  }, 20000);
+  });
 });

@@ -20,11 +20,12 @@ For CSV files with custom columns, see [import-guide.md](import-guide.md). Alway
 fscl rules run --and-commit
 ```
 
-Transfer-linked transactions are skipped automatically (reported as
-`skipped_transfers`) — transfers are always uncategorized, and a payee-set
-action applied to one would delete its linked half in the other account.
-Do not pass `--include-transfers` unless you are certain no matching rule
-sets the payee field.
+Matching transfers are skipped selectively (reported as `skipped_transfers`):
+payee changes would delete the linked half, and category-only changes are
+meaningless when both accounts share on/off-budget status. Category rules still
+apply to the on-budget half of mixed-budget transfers. Do not pass
+`--include-transfers` unless the
+user explicitly accepts destructive unlinking.
 
 ### 3. Reconcile Reviewed Transactions
 

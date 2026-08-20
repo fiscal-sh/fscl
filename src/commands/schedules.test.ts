@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -159,7 +159,7 @@ describe('schedules create/update', () => {
       cli(testEnv, ['accounts', 'balance', account.id]).stdout,
     ).balance_current;
     expect(balanceAfter).toBe(balanceBefore);
-  }, 60000);
+  });
 
   it('rejects a schedule create with missing required fields or invalid amountOp', () => {
     createLocalBudget(testEnv, 'ScheduleValidationBudget');
@@ -198,5 +198,111 @@ describe('schedules create/update', () => {
     ]);
     expect(badOp.exitCode).not.toBe(0);
     expect(`${badOp.stderr}${badOp.stdout}`).toContain('Invalid amountOp');
-  }, 30000);
+
+    const scalarBetween = cli(testEnv, [
+      'schedules',
+      'create',
+      JSON.stringify({
+        account: account.id,
+        payee: payee.id,
+        amount: -10,
+        amountOp: 'isbetween',
+        date: { frequency: 'monthly', start: '2026-01-01', interval: 1 },
+      }),
+    ]);
+    expect(scalarBetween.exitCode).not.toBe(0);
+    expect(parseJsonOutput<{ message: string }>(scalarBetween.stdout).message).toContain(
+      'amountOp "isbetween" requires amount',
+    );
+
+    const valid = cli(testEnv, [
+      'schedules',
+      'create',
+      JSON.stringify({
+        account: account.id,
+        payee: payee.id,
+        amount: -10,
+        date: { frequency: 'monthly', start: '2026-01-01', interval: 1 },
+      }),
+    ]);
+    expect(valid.exitCode).toBe(0);
+    const schedule = parseJsonOutput<CreateOutput>(valid.stdout);
+
+    const incompatibleAmount = cli(testEnv, [
+      'schedules',
+      'update',
+      schedule.id,
+      JSON.stringify({ amount: { num1: -12, num2: -8 } }),
+    ]);
+    expect(incompatibleAmount.exitCode).not.toBe(0);
+    expect(parseJsonOutput<{ message: string }>(incompatibleAmount.stdout).message).toContain(
+      'requires a scalar amount',
+    );
+
+    const incompatibleOp = cli(testEnv, [
+      'schedules',
+      'update',
+      schedule.id,
+      JSON.stringify({ amountOp: 'isbetween' }),
+    ]);
+    expect(incompatibleOp.exitCode).not.toBe(0);
+    expect(parseJsonOutput<{ message: string }>(incompatibleOp.stdout).message).toContain(
+      'requires amount',
+    );
+  });
+
+  it('keeps sidecar review history intact when listing reviews after a schedule is deleted', () => {
+    createLocalBudget(testEnv, 'ReviewRetentionBudget');
+
+    const account = parseJsonOutput<CreateOutput>(
+      cli(testEnv, ['accounts', 'create', 'Checking']).stdout,
+    );
+    const payee = parseJsonOutput<CreateOutput>(
+      cli(testEnv, ['payees', 'create', 'OldService']).stdout,
+    );
+    const created = parseJsonOutput<CreateOutput>(
+      cli(testEnv, [
+        'schedules',
+        'create',
+        JSON.stringify({
+          name: 'OldService',
+          account: account.id,
+          payee: payee.id,
+          amount: -9.99,
+          date: { frequency: 'monthly', start: '2026-01-01', interval: 1 },
+        }),
+      ]).stdout,
+    );
+
+    const reviewResult = cli(testEnv, [
+      'schedules',
+      'review',
+      created.id,
+      JSON.stringify({ decision: 'cancel', note: 'canceled 2026-08' }),
+    ]);
+    expect(reviewResult.exitCode).toBe(0);
+
+    const deleteResult = cli(testEnv, [
+      'schedules',
+      'delete',
+      created.id,
+      '--yes',
+    ]);
+    expect(deleteResult.exitCode).toBe(0);
+
+    const budgetDirs = readdirSync(testEnv.dataDir).filter(name =>
+      existsSync(join(testEnv.dataDir, name, 'fiscal.json')),
+    );
+    expect(budgetDirs.length).toBeGreaterThan(0);
+    const sidecarPath = join(testEnv.dataDir, budgetDirs[0], 'fiscal.json');
+    const sidecarBefore = readFileSync(sidecarPath, 'utf8');
+    expect(sidecarBefore).toContain(created.id);
+
+    // A listing must not rewrite the sidecar: pruning it here would erase the
+    // only remaining record of the deleted schedule's review.
+    const listResult = cli(testEnv, ['schedules', 'reviews']);
+    expect(listResult.exitCode).toBe(0);
+    const sidecarAfter = readFileSync(sidecarPath, 'utf8');
+    expect(sidecarAfter).toBe(sidecarBefore);
+  });
 });

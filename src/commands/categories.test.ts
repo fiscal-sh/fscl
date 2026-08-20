@@ -140,5 +140,5 @@ describe('categories happy path', () => {
     expect(
       listed.data.some(row => row.kind === 'category' && row.id === category.id),
     ).toBe(true);
-  }, 20000);
+  });
 });
