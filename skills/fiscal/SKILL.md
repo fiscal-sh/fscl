@@ -23,7 +23,7 @@ Talk to the user about their finances in plain language. Translate their intent 
 - Account names: Include institution + account type (+ last4/nickname when available), for example `Chase Checking 5736` or `AmEx Credit 1008`.
 - Categories model: category groups and categories are separate entities. Categories belong to groups; categories do not nest under categories.
 - Draft pattern: Always run the exact draft command first, edit the returned `path`, then run the matching apply command. Never hand-create draft JSON files in `drafts/` by path. Draft/apply commands are `categories`, `transactions categorize`, `transactions edit`, `transactions reconcile`, `rules`, `month`, and `month templates`.
-- Read commands (list, show, status) don't sync. Write commands auto-sync when a server is configured.
+- When a server is configured, commands sync from it before running if the local copy is more than 5 minutes old, and write commands sync back after. `--fresh` forces a pre-sync; `--offline` skips the server entirely. A failed post-write sync keeps the change locally and reports it under `sync.pending` in `fscl status`.
 - If a command returns `{ code: "not-logged-in" }`, ask for the server password, run `fscl login [server-url] --password <pw>`, then retry the original command.
 
 ## How to Help Users With Their Budgets

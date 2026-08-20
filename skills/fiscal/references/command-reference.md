@@ -13,6 +13,8 @@ Every fscl command with flags and output columns.
 | `--server-url <url>` | Actual server URL |
 | `--json` | JSON output |
 | `--columns <cols>` | Comma-separated column filter |
+| `--offline` | Skip the configured server: no sync before or after the command |
+| `--fresh` | Sync from the server before the command even if the local copy is recent |
 
 ### Connection and auth resolution
 
@@ -93,11 +95,23 @@ Interactive `fscl init` also asks whether to install the Fiscal agent skill by r
 
 Shows: budget name/ID, server connectivity, entity counts, uncategorized count, transaction date range.
 
+Also reports versions and sync state: `cli.version` (fscl), `cli.api_version`
+(bundled Actual API), `connection.version` (server), and
+`connection.compatibility` (`match`, `patch-drift`, `drift`, or `unknown`).
+Drift produces a `connection.version_warning` explaining the risk; it warns,
+it never blocks. `sync.pending: 1` means a local change has not been uploaded
+yet (`sync.pending_error` has the reason); `sync.last_sync_at` is the last
+successful sync.
+
 ## sync
 
 `fscl sync`
 
-Write commands auto-sync when a server is configured. Use for explicit manual sync.
+Explicit manual sync. Normally unnecessary: when a server is configured,
+commands sync from it before running if the local copy is more than 5 minutes
+old, and write commands sync back after. A failed post-write sync keeps the
+change locally, prints a structured warning on stderr, and shows up as
+`sync.pending: 1` in `fscl status` until a later sync succeeds.
 
 ## login
 
@@ -442,6 +456,15 @@ Seven workflows support draft/apply: **categories**, **transactions categorize**
 4. Run the matching apply command without `--dry-run` to commit. The draft is deleted on success.
 
 Never hand-create a draft file by path. Generate it with the draft command, then edit that generated file.
+
+## Error codes
+
+Error envelopes are `{"status":"err","message":...,"code":...}`. Stable
+`code` values: `NOT_LOGGED_IN`, `NO_BUDGET`, `NO_CONFIG`, `ENTITY_NOT_FOUND`,
+`INVALID_INPUT`, `DRAFT_VALIDATION`, `NATIVE_DEPENDENCY`, `SERVER_REQUIRED`,
+`ACTUAL_VERSION_MISMATCH`, `OPERATION_FAILED`. `ACTUAL_VERSION_MISMATCH`
+means the budget was migrated by a newer Actual client than the bundled API
+can open; updating fscl resolves it and local data is untouched.
 
 ## Exit codes
 

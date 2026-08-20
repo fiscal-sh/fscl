@@ -9,10 +9,17 @@ import {
   assertBetterSqliteAvailable,
   normalizeNativeDependencyError,
 } from './native-deps.js';
+import {
+  isSyncStale,
+  readSyncState,
+  recordSyncFailure,
+  recordSyncSuccess,
+} from './sync-state.js';
 import type {
   ResolvedSessionOptions,
   SessionOptions,
 } from './types.js';
+import { normalizeVersionMismatchError } from './versions.js';
 
 const AGENT_FEATURE_DEFAULTS: ReadonlyArray<{ id: string; value: 'true' | 'false' }> = [
   { id: 'flags.goalTemplatesEnabled', value: 'true' },
@@ -24,12 +31,55 @@ const AGENT_FEATURE_DEFAULTS: ReadonlyArray<{ id: string; value: 'true' | 'false
   { id: 'flags.customThemes', value: 'false' },
 ];
 
-async function tryAutoSync(): Promise<void> {
+/** Re-sync before reads when the last successful sync is older than this. */
+const SYNC_STALE_AFTER_MS = 5 * 60 * 1000;
+
+async function tryAutoSync(resolved: ResolvedSessionOptions): Promise<void> {
   try {
     await api.sync();
+    recordSyncSuccess(resolved.dataDir, resolved.budgetId!);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`Warning: automatic sync failed after local changes were saved: ${message}`);
+    recordSyncFailure(resolved.dataDir, resolved.budgetId!, message);
+    // The command's stdout document is already printed and the local write
+    // succeeded, so this must not become an error envelope (a consumer would
+    // retry and duplicate the mutation). Emit a structured warning on stderr;
+    // `status` reports the pending state until a later sync succeeds.
+    console.error(
+      JSON.stringify({
+        status: 'warning',
+        entity: 'sync',
+        synced: false,
+        message: `Changes were saved locally but not uploaded to the server: ${message}. They will upload on the next successful sync; check 'fscl status' for sync.pending.`,
+      }),
+    );
+  }
+}
+
+async function syncBeforeRead(resolved: ResolvedSessionOptions): Promise<void> {
+  const state = readSyncState(resolved.dataDir, resolved.budgetId!);
+  if (!resolved.fresh && !isSyncStale(state, SYNC_STALE_AFTER_MS)) {
+    return;
+  }
+  try {
+    await api.sync();
+    recordSyncSuccess(resolved.dataDir, resolved.budgetId!);
+  } catch (error) {
+    const normalized = normalizeVersionMismatchError(error);
+    if (normalized !== error) {
+      throw normalized;
+    }
+    // A failed pre-read sync degrades to local data rather than blocking the
+    // command; the warning makes the staleness visible.
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(
+      JSON.stringify({
+        status: 'warning',
+        entity: 'sync',
+        synced: false,
+        message: `Could not sync from the server; using local data (last successful sync: ${state.lastSyncAt ?? 'never'}). ${message}`,
+      }),
+    );
   }
 }
 
@@ -55,8 +105,10 @@ async function ensureAgentFeatureDefaults(): Promise<boolean> {
 function resolveSession(options: SessionOptions = {}): ResolvedSessionOptions {
   const config = readConfig();
   const dataDir = options.dataDir ?? config.dataDir ?? getDefaultDataDir();
-  const serverURL =
-    options.serverURL ?? process.env.FISCAL_SERVER_URL ?? config.serverURL;
+  const offline = Boolean(options.offline);
+  const serverURL = offline
+    ? undefined
+    : options.serverURL ?? process.env.FISCAL_SERVER_URL ?? config.serverURL;
   const token = options.token ?? config.token;
   const budgetId = options.budget ?? config.activeBudgetId;
   return {
@@ -65,6 +117,8 @@ function resolveSession(options: SessionOptions = {}): ResolvedSessionOptions {
     serverURL,
     token,
     write: Boolean(options.write),
+    offline,
+    fresh: Boolean(options.fresh),
   };
 }
 
@@ -125,16 +179,20 @@ export async function withBudget<T>(
     try {
       await api.loadBudget(resolved.budgetId);
     } catch (error) {
-      throw normalizeNativeDependencyError(error);
+      const normalized = normalizeNativeDependencyError(error);
+      throw normalized === error
+        ? normalizeVersionMismatchError(error)
+        : normalized;
+    }
+    if (resolved.serverURL) {
+      await syncBeforeRead(resolved);
     }
     const updatedFeatureDefaults = await ensureAgentFeatureDefaults();
     try {
       return await fn(resolved);
     } finally {
-      if (resolved.write && resolved.serverURL) {
-        await tryAutoSync();
-      } else if (updatedFeatureDefaults && resolved.serverURL) {
-        await tryAutoSync();
+      if (resolved.serverURL && (resolved.write || updatedFeatureDefaults)) {
+        await tryAutoSync(resolved);
       }
     }
   });

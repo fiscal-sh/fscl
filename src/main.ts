@@ -33,6 +33,8 @@ program
   .option('--server-url <url>', 'Actual server URL for sync mode')
   .option('--json', 'Output as JSON instead of table')
   .option('--columns <cols>', 'Comma-separated column filter for list output')
+  .option('--offline', 'Skip the configured server entirely: no sync before or after the command')
+  .option('--fresh', 'Sync from the server before the command even if the local copy is recent')
   .addHelpText(
     'after',
     `\nConfig file: ${getConfigPath()}\nEnv: FISCAL_SERVER_URL`,

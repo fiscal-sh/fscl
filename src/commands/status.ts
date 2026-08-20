@@ -7,16 +7,26 @@ import { withApi } from '../budget.js';
 import { getConfigPath, readConfig } from '../config.js';
 import { printObject, printRowsTable } from '../output.js';
 import type { OutputFormat } from '../types.js';
+import { readSyncState } from '../sync-state.js';
+import {
+  compareVersions,
+  getBundledApiVersion,
+  getFsclVersion,
+} from '../versions.js';
 import { budgetRows, getActionCommand, send } from './common.js';
 
 const STATUS_PAIR_FIELDS: ReadonlyArray<{ key: string; field: string }> = [
   { key: 'config.path', field: 'config_path' },
   { key: 'config.data_dir', field: 'data_dir' },
+  { key: 'cli.version', field: 'fscl_version' },
+  { key: 'cli.api_version', field: 'api_version' },
   { key: 'connection.configured', field: 'server_configured' },
   { key: 'connection.url', field: 'server_url' },
   { key: 'connection.logged_in', field: 'server_logged_in' },
   { key: 'connection.reachable', field: 'server_reachable' },
   { key: 'connection.version', field: 'server_version' },
+  { key: 'connection.compatibility', field: 'version_compatibility' },
+  { key: 'connection.version_warning', field: 'version_warning' },
   { key: 'connection.error', field: 'server_error' },
   { key: 'budget.active_id', field: 'active_budget_id' },
   { key: 'budget.active_name', field: 'active_budget_name' },
@@ -52,6 +62,8 @@ const STATUS_PAIR_FIELDS: ReadonlyArray<{ key: string; field: string }> = [
   { key: 'metrics.transactions.latest_date', field: 'latest_transaction_date' },
   { key: 'metrics.transactions.earliest_date', field: 'earliest_transaction_date' },
   { key: 'sync.pending', field: 'sync_pending' },
+  { key: 'sync.last_sync_at', field: 'sync_last_at' },
+  { key: 'sync.pending_error', field: 'sync_pending_error' },
 ];
 
 type StatusSession = {
@@ -81,6 +93,8 @@ const COMPACT_STATUS_FIELDS = [
   'server_error',
   'transactions_uncategorized',
   'sync_pending',
+  'version_compatibility',
+  'version_warning',
 ] as const;
 
 type ServerInfoResponse = {
@@ -190,12 +204,18 @@ function statusJsonObject(row: StatusRow): Record<string, unknown> {
       path: row.config_path,
       data_dir: row.data_dir,
     },
+    cli: {
+      version: row.fscl_version,
+      api_version: row.api_version,
+    },
     connection: {
       configured: fromOneZero(row.server_configured),
       url: row.server_url,
       logged_in: fromOneZero(row.server_logged_in),
       reachable: fromOneZero(row.server_reachable),
       version: row.server_version,
+      compatibility: row.version_compatibility,
+      version_warning: row.version_warning,
       error: row.server_error,
     },
     budget: {
@@ -251,6 +271,8 @@ function statusJsonObject(row: StatusRow): Record<string, unknown> {
     },
     sync: {
       pending: row.sync_pending,
+      last_sync_at: row.sync_last_at,
+      pending_error: row.sync_pending_error,
     },
   };
 
@@ -494,12 +516,23 @@ export async function collectStatus(session: StatusSession): Promise<StatusRow> 
   const row: StatusRow = {
     config_path: getConfigPath(),
     data_dir: session.dataDir,
+    fscl_version: getFsclVersion(),
+    api_version: getBundledApiVersion(),
     server_configured: session.serverURL ? 1 : 0,
     server_url: session.serverURL,
     server_logged_in: session.token ? 1 : 0,
     active_budget_id: session.budgetId,
     sync_pending: session.serverURL ? 'unknown' : 0,
   };
+
+  if (session.budgetId) {
+    const syncState = readSyncState(session.dataDir, session.budgetId);
+    if (session.serverURL) {
+      row.sync_pending = syncState.pendingSince ? 1 : 0;
+    }
+    row.sync_last_at = syncState.lastSyncAt;
+    row.sync_pending_error = syncState.pendingError;
+  }
 
   await withApi(
     {
@@ -536,12 +569,13 @@ export async function collectStatus(session: StatusSession): Promise<StatusRow> 
         await collectBudgetMetrics(row, session);
         row.server_reachable = 1;
 
-        if (row.budget_loaded === 1) {
-          const version = await fetchServerVersion(serverURL);
-          if (version) {
-            row.server_version = version;
-          }
+        const version = await fetchServerVersion(serverURL);
+        if (version) {
+          row.server_version = version;
         }
+        const compat = compareVersions(getBundledApiVersion(), version);
+        row.version_compatibility = compat.compatibility;
+        row.version_warning = compat.warning;
       },
     );
     return row;

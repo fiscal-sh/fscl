@@ -13,6 +13,8 @@ export type GlobalOptions = {
   serverUrl?: string;
   json?: boolean;
   columns?: string;
+  offline?: boolean;
+  fresh?: boolean;
 };
 
 export type SessionOptions = {
@@ -21,6 +23,8 @@ export type SessionOptions = {
   serverURL?: string;
   token?: string;
   write?: boolean;
+  offline?: boolean;
+  fresh?: boolean;
 };
 
 export type ResolvedSessionOptions = {
@@ -29,4 +33,6 @@ export type ResolvedSessionOptions = {
   serverURL?: string;
   token?: string;
   write: boolean;
+  offline: boolean;
+  fresh: boolean;
 };
