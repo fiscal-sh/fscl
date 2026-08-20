@@ -24,6 +24,7 @@ export const ErrorCodes = {
   NATIVE_DEPENDENCY: 'NATIVE_DEPENDENCY',
   OPERATION_FAILED: 'OPERATION_FAILED',
   SERVER_REQUIRED: 'SERVER_REQUIRED',
+  ACTUAL_VERSION_MISMATCH: 'ACTUAL_VERSION_MISMATCH',
 } as const;
 
 export function getGlobalOptions(command: Command): GlobalOptions {
@@ -34,6 +35,8 @@ export function getGlobalOptions(command: Command): GlobalOptions {
     serverUrl: opts.serverUrl,
     json: opts.json,
     columns: opts.columns,
+    offline: opts.offline,
+    fresh: opts.fresh,
   };
 }
 
@@ -51,6 +54,8 @@ export function getSessionOptions(command: Command): SessionOptions {
     dataDir: opts.dataDir,
     budget: opts.budget,
     serverURL: opts.serverUrl,
+    offline: opts.offline,
+    fresh: opts.fresh,
   };
 }
 

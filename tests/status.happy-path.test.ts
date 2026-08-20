@@ -67,5 +67,17 @@ describe('status happy path', () => {
       server_logged_in: 0,
       sync_pending: 0,
     });
+
+    const fullResult = runCli(
+      ['--data-dir', testEnv.dataDir, '--json', 'status'],
+      undefined,
+      testEnv.env,
+    );
+    expect(fullResult.exitCode).toBe(0);
+    const full = parseJsonOutput<{
+      cli?: { version?: string; api_version?: string };
+    }>(fullResult.stdout);
+    expect(full.cli?.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(full.cli?.api_version).toMatch(/^\d+\.\d+\.\d+/);
   });
 });

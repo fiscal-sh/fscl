@@ -24,12 +24,17 @@ Without a server, Fiscal stores your budget locally and everything works fine. A
 This command starts the Actual Budget server in Docker:
 
 ```bash
-docker run --pull=always --restart=unless-stopped -d \
+docker run --restart=unless-stopped -d \
   -p 5006:5006 \
   -v ~/actual-data:/data \
   --name actual-budget \
-  actualbudget/actual-server:latest
+  actualbudget/actual-server:26.8.1
 ```
+
+The image tag matches the Actual API version bundled with Fiscal. Actual
+releases its API, web client, and server together, so Fiscal and the server
+should run the same version. Run `fscl status` to see both versions and
+whether they match.
 
 The `-v ~/actual-data:/data` flag saves your data to a directory on your machine. Without it, your data only exists inside the container and is lost when the container is removed.
 
@@ -108,8 +113,14 @@ docker rm actual-budget
 
 ## Updating
 
+Upgrade Fiscal first, then move the server to the matching version. The
+bundled version is shown by `fscl status` as `cli.api_version`.
+
 ```bash
-docker pull actualbudget/actual-server:latest
+docker pull actualbudget/actual-server:<version from fscl status>
 docker stop actual-budget && docker rm actual-budget
-# Re-run the docker run command from above
+# Re-run the docker run command from above with the new tag
 ```
+
+The pinned server does not update on its own. Check for new Fiscal releases
+periodically and upgrade the pair together.
