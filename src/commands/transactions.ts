@@ -7,11 +7,11 @@ import { parseAmount, withBudget } from '../budget.js';
 import { deleteDraft, readDraft, writeDraft } from '../drafts.js';
 import {
   printDraftValidationErrors,
-  printErrorMessages,
   printRows,
   printStatusErr,
   printStatusOk,
 } from '../output.js';
+import { planTransactionUpdates } from '../mutation-guard.js';
 import { parseAmountFields } from '../parsers/amounts.js';
 import {
   detectCsvMappings,
@@ -25,6 +25,7 @@ import type {
   CsvTransaction,
   StructuredImportTransaction,
 } from '../parsers/types.js';
+import { createMutationSnapshot } from '../snapshots.js';
 import {
   buildNameMaps,
   enrichRows,
@@ -471,7 +472,7 @@ async function importTransactionsCommand(
   const format = getFormat(cmd);
   const showRows = Boolean(options.showRows);
   const showReport = Boolean(options.report);
-  await withBudget({ ...session, write: true }, async () => {
+  await withBudget({ ...session, write: true }, async resolved => {
     const accountId = await resolveAccountId(inputAccountId);
     const categories = (await api.getCategories()) as Array<Record<string, unknown>>;
     const categoriesByName = new Map<string, string>();
@@ -494,8 +495,11 @@ async function importTransactionsCommand(
 
     const parseErrors = parsed.errors.map(error => error.message);
     if (parseErrors.length > 0) {
-      printStatusErr('Failed parsing input file');
-      printErrorMessages(parseErrors);
+      printStatusErr('Failed parsing input file', {
+        code: 'INVALID_INPUT',
+        entity: 'import',
+        errors: parseErrors,
+      });
       process.exitCode = 1;
       return;
     }
@@ -515,8 +519,11 @@ async function importTransactionsCommand(
           );
 
     if (normalized.errors.length > 0) {
-      printStatusErr('Failed to normalize transactions');
-      printErrorMessages(normalized.errors);
+      printStatusErr('Failed to normalize transactions', {
+        code: 'INVALID_INPUT',
+        entity: 'import',
+        errors: normalized.errors,
+      });
       process.exitCode = 1;
       return;
     }
@@ -550,9 +557,29 @@ async function importTransactionsCommand(
     }));
 
     if (!reconcile) {
+      const snapshot = await createMutationSnapshot(
+        resolved.dataDir,
+        resolved.budgetId!,
+        'transactions-import',
+      );
       await api.addTransactions(accountId, transactions);
       const uncategorizedCount = await queryUncategorizedCount(accountId);
       const { dateStart, dateEnd } = computeDateRange(transactions);
+      const report = {
+        file: filePath,
+        account: accountId,
+        input: transactions.length,
+        added: transactions.length,
+        updated: 0,
+        skipped: 0,
+        preview: 0,
+        errors: 0,
+        date_start: dateStart,
+        date_end: dateEnd,
+        uncategorized_count: uncategorizedCount,
+        reconcile: 0,
+        dry_run: 0,
+      };
       printStatusOk({
         entity: 'import',
         input: transactions.length,
@@ -564,33 +591,20 @@ async function importTransactionsCommand(
         dateEnd,
         errors: 0,
         uncategorized_count: uncategorizedCount,
+        snapshot,
+        ...(format === 'json' && showRows ? { rows: transactions } : {}),
+        ...(format === 'json' && showReport ? { report } : {}),
       });
-      if (showRows) {
+      if (format === 'table' && showRows) {
         printRows(format, 'import-rows', transactions as unknown as Array<Record<string, unknown>>, [
           'date', 'amount', 'payee_name', 'category', 'notes',
         ]);
       }
-      if (showReport) {
+      if (format === 'table' && showReport) {
         printRows(
           format,
           'import-report',
-          [
-            {
-              file: filePath,
-              account: accountId,
-              input: transactions.length,
-              added: transactions.length,
-              updated: 0,
-              skipped: 0,
-              preview: 0,
-              errors: 0,
-              date_start: dateStart,
-              date_end: dateEnd,
-              uncategorized_count: uncategorizedCount,
-              reconcile: 0,
-              dry_run: dryRun ? 1 : 0,
-            },
-          ],
+          [report],
           [
             'file',
             'account',
@@ -616,6 +630,13 @@ async function importTransactionsCommand(
       account: accountId,
     }));
 
+    const snapshot = dryRun
+      ? undefined
+      : await createMutationSnapshot(
+          resolved.dataDir,
+          resolved.budgetId!,
+          'transactions-import',
+        );
     const result = (await api.importTransactions(accountId, importPayload, {
       defaultCleared: clearFlag,
       dryRun,
@@ -638,7 +659,22 @@ async function importTransactionsCommand(
       ? undefined
       : await queryUncategorizedCount(accountId);
 
-    printStatusOk({
+    const report = {
+      file: filePath,
+      account: accountId,
+      input: transactions.length,
+      added: addedCount,
+      updated: updatedCount,
+      skipped,
+      preview: previewCount,
+      errors: errorMessages.length,
+      date_start: dateStart,
+      date_end: dateEnd,
+      uncategorized_count: uncategorizedCount,
+      reconcile: 1,
+      dry_run: dryRun ? 1 : 0,
+    };
+    const output = {
       entity: 'import',
       input: transactions.length,
       added: addedCount,
@@ -649,37 +685,30 @@ async function importTransactionsCommand(
       dateEnd,
       errors: errorMessages.length,
       uncategorized_count: uncategorizedCount,
-    });
+      snapshot,
+      ...(format === 'json' && showRows ? { rows: transactions } : {}),
+      ...(format === 'json' && showReport ? { report } : {}),
+    };
     if (errorMessages.length > 0) {
-      printErrorMessages(errorMessages);
+      printStatusErr('Import completed with errors', {
+        code: 'OPERATION_FAILED',
+        ...output,
+        error_messages: errorMessages,
+      });
       process.exitCode = 1;
+    } else {
+      printStatusOk(output);
     }
-    if (showRows) {
+    if (format === 'table' && showRows) {
       printRows(format, 'import-rows', transactions as unknown as Array<Record<string, unknown>>, [
         'date', 'amount', 'payee_name', 'category', 'notes',
       ]);
     }
-    if (showReport) {
+    if (format === 'table' && showReport) {
       printRows(
         format,
         'import-report',
-        [
-          {
-            file: filePath,
-            account: accountId,
-            input: transactions.length,
-            added: addedCount,
-            updated: updatedCount,
-            skipped,
-            preview: previewCount,
-            errors: errorMessages.length,
-            date_start: dateStart,
-            date_end: dateEnd,
-            uncategorized_count: uncategorizedCount,
-            reconcile: 1,
-            dry_run: dryRun ? 1 : 0,
-          },
-        ],
+        [report],
         [
           'file',
           'account',
@@ -936,6 +965,13 @@ transactions, and deletes the draft on success.`,
 
           await validateCategoryIds(result.data.map(e => e.category));
 
+          const updates = result.data.map(entry => ({
+            id: entry.id,
+            category: entry.category,
+          }));
+          const plan = await planTransactionUpdates(updates);
+          const plannedIds = new Set(plan.updates.map(update => update.id));
+
           if (dryRun) {
             printRows(
               format,
@@ -943,7 +979,7 @@ transactions, and deletes the draft on success.`,
               result.data.map(entry => ({
                 id: entry.id,
                 category: entry.category,
-                result: 'would-update',
+                result: plannedIds.has(entry.id) ? 'would-update' : 'unchanged',
               })),
               ['id', 'category', 'result'],
               { dryRun: 1, entries: result.data.length },
@@ -951,14 +987,18 @@ transactions, and deletes the draft on success.`,
             return;
           }
 
-          const updates = result.data.map(entry => ({
-            id: entry.id,
-            category: entry.category,
-          }));
-
-          const batchResult = (await send('transactions-batch-update', {
-            updated: updates,
-          })) as { updated?: unknown[] };
+          const snapshot = plan.updates.length > 0
+            ? await createMutationSnapshot(
+                resolved.dataDir,
+                resolved.budgetId,
+                'transactions-categorize-apply',
+              )
+            : undefined;
+          const batchResult = plan.updates.length > 0
+            ? (await send('transactions-batch-update', {
+                updated: plan.updates,
+              })) as { updated?: unknown[] }
+            : { updated: [] };
           const updatedCount = batchResult.updated?.length ?? 0;
 
           deleteDraft(resolved.dataDir, resolved.budgetId, 'categorize.json');
@@ -971,10 +1011,14 @@ transactions, and deletes the draft on success.`,
             updates.map(u => ({
               id: u.id,
               category: u.category,
-              result: 'updated',
+              result: plannedIds.has(u.id) ? 'updated' : 'unchanged',
             })),
             ['id', 'category', 'result'],
-            { updated: updatedCount, uncategorized_count: uncategorizedCount },
+            {
+              updated: updatedCount,
+              uncategorized_count: uncategorizedCount,
+              snapshot,
+            },
           );
         });
       }),
@@ -1215,27 +1259,44 @@ batch-updates cleared/reconciled flags, and deletes the draft on success.`,
             cleared: entry.cleared,
             reconciled: entry.reconciled,
           }));
+          const plan = await planTransactionUpdates(updates);
+          const plannedIds = new Set(plan.updates.map(update => update.id));
           if (dryRun) {
             printRows(
               format,
               'reconcile-apply',
-              updates.map(entry => ({ ...entry, result: 'would-update' })),
+              updates.map(entry => ({
+                ...entry,
+                result: plannedIds.has(entry.id) ? 'would-update' : 'unchanged',
+              })),
               ['id', 'cleared', 'reconciled', 'result'],
               { dryRun: 1, entries: updates.length },
             );
             return;
           }
-          const batchResult = (await send('transactions-batch-update', {
-            updated: updates,
-          })) as { updated?: unknown[] };
+          const snapshot = plan.updates.length > 0
+            ? await createMutationSnapshot(
+                resolved.dataDir,
+                resolved.budgetId,
+                'transactions-reconcile-apply',
+              )
+            : undefined;
+          const batchResult = plan.updates.length > 0
+            ? (await send('transactions-batch-update', {
+                updated: plan.updates,
+              })) as { updated?: unknown[] }
+            : { updated: [] };
           const updatedCount = batchResult.updated?.length ?? 0;
           deleteDraft(resolved.dataDir, resolved.budgetId, 'reconcile.json');
           printRows(
             format,
             'reconcile-apply',
-            updates.map(entry => ({ ...entry, result: 'updated' })),
+            updates.map(entry => ({
+              ...entry,
+              result: plannedIds.has(entry.id) ? 'updated' : 'unchanged',
+            })),
             ['id', 'cleared', 'reconciled', 'result'],
-            { updated: updatedCount },
+            { updated: updatedCount, snapshot },
           );
         });
       }),
@@ -1389,6 +1450,10 @@ Edit the fields you want to change, then run:
   edit
     .command('apply')
     .option('--dry-run', 'Preview changes without applying')
+    .option(
+      '--include-transfers',
+      'Allow payee changes on transfer-linked transactions (destructive)',
+    )
     .description('Apply an edit draft JSON file')
     .addHelpText(
       'after',
@@ -1396,13 +1461,16 @@ Edit the fields you want to change, then run:
 Examples:
   fiscal transactions edit apply
   fiscal transactions edit apply --dry-run
+  fiscal transactions edit apply --include-transfers
 
 Reads <dataDir>/<budgetId>/drafts/edit.json, validates entries with Zod,
-validates category and account IDs, batch-updates transactions, and deletes
-the draft on success.`,
+validates category and account IDs, and sends only fields that differ from the
+current transaction. Payee changes on linked transfers are refused because
+Actual deletes the counterpart; --include-transfers explicitly opts into that
+destructive behavior. The draft is deleted on success.`,
     )
     .action(
-      commandAction(async (options: { dryRun?: boolean }, ...args: unknown[]) => {
+      commandAction(async (options: { dryRun?: boolean; includeTransfers?: boolean }, ...args: unknown[]) => {
         const cmd = getActionCommand(args);
         const session = getSessionOptions(cmd);
         const format = getFormat(cmd);
@@ -1470,25 +1538,52 @@ the draft on success.`,
             }
             return fields;
           });
+          const plan = await planTransactionUpdates(
+            updates as Array<{ id: string; [field: string]: unknown }>,
+            { includeTransfers: Boolean(options.includeTransfers) },
+          );
+          const plannedById = new Map(
+            plan.updates.map(update => [update.id, update]),
+          );
+          const outputRows = updates.map(update => {
+            const id = String(update.id);
+            const planned = plannedById.get(id);
+            return {
+              id,
+              fields: planned
+                ? Object.keys(planned).filter(key => key !== 'id').join(',')
+                : '',
+              result: planned
+                ? dryRun
+                  ? 'would-update'
+                  : 'updated'
+                : 'unchanged',
+            };
+          });
 
           if (dryRun) {
             printRows(
               format,
               'edit-apply',
-              updates.map(u => ({
-                id: u.id,
-                fields: Object.keys(u).filter(k => k !== 'id').join(','),
-                result: 'would-update',
-              })),
+              outputRows,
               ['id', 'fields', 'result'],
               { dryRun: 1, entries: updates.length },
             );
             return;
           }
 
-          const batchResult = (await send('transactions-batch-update', {
-            updated: updates,
-          })) as { updated?: unknown[] };
+          const snapshot = plan.updates.length > 0
+            ? await createMutationSnapshot(
+                resolved.dataDir,
+                resolved.budgetId,
+                'transactions-edit-apply',
+              )
+            : undefined;
+          const batchResult = plan.updates.length > 0
+            ? (await send('transactions-batch-update', {
+                updated: plan.updates,
+              })) as { updated?: unknown[] }
+            : { updated: [] };
           const updatedCount = batchResult.updated?.length ?? 0;
 
           deleteDraft(resolved.dataDir, resolved.budgetId, 'edit.json');
@@ -1496,13 +1591,9 @@ the draft on success.`,
           printRows(
             format,
             'edit-apply',
-            updates.map(u => ({
-              id: u.id,
-              fields: Object.keys(u).filter(k => k !== 'id').join(','),
-              result: 'updated',
-            })),
+            outputRows,
             ['id', 'fields', 'result'],
-            { updated: updatedCount },
+            { updated: updatedCount, snapshot },
           );
         });
       }),

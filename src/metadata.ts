@@ -3,6 +3,13 @@ import { dirname, join } from 'node:path';
 
 import { z } from 'zod';
 
+import { api } from './actual-api.js';
+
+const REVIEW_BLOCK_START = '<!-- fiscal:schedule-review';
+const REVIEW_BLOCK_END = '-->';
+const REVIEW_BLOCK_PATTERN =
+  /(?:\r?\n)?<!-- fiscal:schedule-review\r?\n([\s\S]*?)\r?\n-->/g;
+
 const ScheduleReviewSchema = z.object({
   decision: z.enum(['keep', 'cancel', 'pause']),
   reviewedAt: z.string(),
@@ -68,4 +75,72 @@ export function upsertScheduleReview(
   const data = readMetadata(dataDir, budgetId);
   data.scheduleReviews[scheduleId] = review;
   writeMetadata(dataDir, budgetId, data);
+}
+
+function parseScheduleReviewBlock(note: string): ScheduleReview | undefined {
+  const raw = [...note.matchAll(REVIEW_BLOCK_PATTERN)].at(-1)?.[1];
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    const parsed = ScheduleReviewSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function withScheduleReviewBlock(note: string, review: ScheduleReview): string {
+  const humanNote = note.replace(REVIEW_BLOCK_PATTERN, '').trimEnd();
+  const block = `${REVIEW_BLOCK_START}\n${JSON.stringify(review)}\n${REVIEW_BLOCK_END}`;
+  return humanNote ? `${humanNote}\n\n${block}` : block;
+}
+
+/** Read review metadata from synced notes, migrating sidecar-only reviews. */
+export async function readScheduleReviews(
+  dataDir: string,
+  budgetId: string,
+  scheduleIds: string[],
+): Promise<Record<string, ScheduleReview>> {
+  const cached = readMetadata(dataDir, budgetId);
+  const reviews: Record<string, ScheduleReview> = {};
+
+  await Promise.all(
+    scheduleIds.map(async scheduleId => {
+      const entity = await api.getNote(scheduleId);
+      const currentNote = entity?.note ?? '';
+      const fromBudget = parseScheduleReviewBlock(currentNote);
+      if (fromBudget) {
+        reviews[scheduleId] = fromBudget;
+        return;
+      }
+
+      const fromSidecar = cached.scheduleReviews[scheduleId];
+      if (!fromSidecar) {
+        return;
+      }
+      await api.updateNote(
+        scheduleId,
+        withScheduleReviewBlock(currentNote, fromSidecar),
+      );
+      reviews[scheduleId] = fromSidecar;
+    }),
+  );
+
+  writeMetadata(dataDir, budgetId, { scheduleReviews: reviews });
+  return reviews;
+}
+
+export async function writeScheduleReview(
+  dataDir: string,
+  budgetId: string,
+  scheduleId: string,
+  review: ScheduleReview,
+): Promise<void> {
+  const entity = await api.getNote(scheduleId);
+  await api.updateNote(
+    scheduleId,
+    withScheduleReviewBlock(entity?.note ?? '', review),
+  );
+  upsertScheduleReview(dataDir, budgetId, scheduleId, review);
 }

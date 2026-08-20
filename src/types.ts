@@ -30,5 +30,3 @@ export type ResolvedSessionOptions = {
   token?: string;
   write: boolean;
 };
-
-export type PrimitiveRecordValue = string | number | boolean | null | undefined;

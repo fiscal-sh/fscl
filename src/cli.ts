@@ -22,6 +22,7 @@ export const ErrorCodes = {
   INVALID_INPUT: 'INVALID_INPUT',
   DRAFT_VALIDATION: 'DRAFT_VALIDATION',
   NATIVE_DEPENDENCY: 'NATIVE_DEPENDENCY',
+  OPERATION_FAILED: 'OPERATION_FAILED',
   SERVER_REQUIRED: 'SERVER_REQUIRED',
 } as const;
 
@@ -95,8 +96,17 @@ export function commandAction<T extends unknown[]>(
         error instanceof Error
           ? error.message
           : 'An unexpected error occurred';
-      const code = error instanceof CliError ? error.code : undefined;
-      printStatusErr(message, code ? { code } : {});
+      const errorCode =
+        error && typeof error === 'object' && 'code' in error
+          ? (error as { code?: unknown }).code
+          : undefined;
+      const code =
+        error instanceof CliError
+          ? error.code
+          : typeof errorCode === 'string' && errorCode
+            ? errorCode
+            : ErrorCodes.OPERATION_FAILED;
+      printStatusErr(message, { code });
       process.exitCode = 1;
     }
   };

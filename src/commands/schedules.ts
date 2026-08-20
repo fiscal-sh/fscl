@@ -5,9 +5,9 @@ import { z } from 'zod';
 import { commandAction, getFormat, getSessionOptions } from '../cli.js';
 import { withBudget } from '../budget.js';
 import {
-  readMetadata,
+  readScheduleReviews,
   ScheduleReviewInputSchema,
-  upsertScheduleReview,
+  writeScheduleReview,
 } from '../metadata.js';
 import { printRows, printStatusOk } from '../output.js';
 import {
@@ -549,7 +549,8 @@ Example:
 
 Valid decisions: keep, cancel, pause
 cadenceMonths sets how many months until next review (default: 3).
-Reviews are stored in fiscal.json alongside the budget.`,
+Reviews are stored in a structured block in the schedule's synced budget note.
+Any existing fiscal.json review is migrated automatically.`,
     )
     .action(
       commandAction(async (id: string, reviewJson: string, ...args: unknown[]) => {
@@ -560,7 +561,7 @@ Reviews are stored in fiscal.json alongside the budget.`,
           ScheduleReviewInputSchema,
           'schedule review',
         );
-        await withBudget(session, async resolved => {
+        await withBudget({ ...session, write: true }, async resolved => {
           const allSchedules = (await api.getSchedules()) as Array<
             Record<string, unknown>
           >;
@@ -570,7 +571,7 @@ Reviews are stored in fiscal.json alongside the budget.`,
           const cadence = input.cadenceMonths ?? 3;
           const nextReviewAt = addMonths(today, cadence);
 
-          upsertScheduleReview(resolved.dataDir, resolved.budgetId!, id, {
+          await writeScheduleReview(resolved.dataDir, resolved.budgetId!, id, {
             decision: input.decision,
             reviewedAt: today,
             nextReviewAt,
@@ -609,7 +610,7 @@ next_review_at has passed.`,
         const cmd = getActionCommand(args);
         const format = getFormat(cmd);
         const session = getSessionOptions(cmd);
-        await withBudget(session, async resolved => {
+        await withBudget({ ...session, write: true }, async resolved => {
           const today = todayLocalDateString();
           const [allSchedules, { accountNames, payeeNames }] = await Promise.all(
             [
@@ -617,8 +618,13 @@ next_review_at has passed.`,
               buildNameMaps(),
             ],
           );
-          const metadata = readMetadata(resolved.dataDir, resolved.budgetId!);
-          const reviews = metadata.scheduleReviews;
+          const reviews = await readScheduleReviews(
+            resolved.dataDir,
+            resolved.budgetId!,
+            allSchedules
+              .map(schedule => schedule.id)
+              .filter((id): id is string => typeof id === 'string' && Boolean(id)),
+          );
 
           let rows = allSchedules.map(s => {
             const review = reviews[String(s.id)];

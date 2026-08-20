@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -105,7 +108,58 @@ describe('schedules create/update', () => {
     const summary = parseJsonOutput<ScheduleSummaryOutput>(summaryResult.stdout);
     const summaryRow = summary.data.find(s => s.id === created.id);
     expect(summaryRow?.monthly_amount).toBe(-1699);
-  }, 30000);
+
+    const reviewResult = cli(testEnv, [
+      'schedules',
+      'review',
+      created.id,
+      JSON.stringify({ decision: 'keep', note: 'still useful', cadenceMonths: 6 }),
+    ]);
+    expect(reviewResult.exitCode).toBe(0);
+
+    const transactionResult = cli(testEnv, [
+      'transactions',
+      'add',
+      account.id,
+      '--date',
+      '2026-02-01',
+      '--amount',
+      '-12.34',
+      '--payee',
+      'Netflix',
+    ]);
+    expect(transactionResult.exitCode).toBe(0);
+    const balanceBefore = parseJsonOutput<{ balance_current: number }>(
+      cli(testEnv, ['accounts', 'balance', account.id]).stdout,
+    ).balance_current;
+
+    const exportPath = join(testEnv.rootDir, 'schedule-budget.zip');
+    const exportResult = cli(testEnv, ['budgets', 'export', exportPath]);
+    expect(exportResult.exitCode).toBe(0);
+    expect(existsSync(exportPath)).toBe(true);
+
+    const restoreResult = cli(testEnv, ['budgets', 'restore', exportPath]);
+    expect(restoreResult.exitCode).toBe(0);
+    const restored = parseJsonOutput<{ id: string }>(restoreResult.stdout);
+    expect(restored.id).toBeTruthy();
+
+    const reviewsResult = cli(testEnv, ['schedules', 'reviews']);
+    expect(reviewsResult.exitCode).toBe(0);
+    const reviews = parseJsonOutput<{
+      data: Array<{ schedule_id: string; decision: string; note: string }>;
+    }>(reviewsResult.stdout);
+    expect(reviews.data).toContainEqual(
+      expect.objectContaining({
+        schedule_id: created.id,
+        decision: 'keep',
+        note: 'still useful',
+      }),
+    );
+    const balanceAfter = parseJsonOutput<{ balance_current: number }>(
+      cli(testEnv, ['accounts', 'balance', account.id]).stdout,
+    ).balance_current;
+    expect(balanceAfter).toBe(balanceBefore);
+  }, 60000);
 
   it('rejects a schedule create with missing required fields or invalid amountOp', () => {
     createLocalBudget(testEnv, 'ScheduleValidationBudget');

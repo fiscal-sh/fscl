@@ -2,10 +2,17 @@ import { api } from '../actual-api.js';
 import { Command } from 'commander';
 import { z } from 'zod';
 
-import { commandAction, getFormat, getSessionOptions } from '../cli.js';
+import {
+  CliError,
+  ErrorCodes,
+  commandAction,
+  getFormat,
+  getSessionOptions,
+} from '../cli.js';
 import { withBudget } from '../budget.js';
 import { deleteDraft, readDraft, writeDraft } from '../drafts.js';
 import { printDraftValidationErrors, printRows, printStatusOk } from '../output.js';
+import { createMutationSnapshot } from '../snapshots.js';
 import {
   buildNameMaps,
   enrichRows,
@@ -457,12 +464,13 @@ async function applySingleRule(
   format: 'json' | 'table',
   mode: 'dry-run' | 'apply' | 'and-commit',
   includeTransfers = false,
+  snapshotContext?: { dataDir: string; budgetId: string },
 ): Promise<void> {
   const rule = (await send('rule-get', {
     id: ruleId,
   })) as Record<string, unknown> | null;
   if (!rule) {
-    throw new Error(`Rule not found: ${ruleId}`);
+    throw new CliError(`Rule not found: ${ruleId}`, ErrorCodes.ENTITY_NOT_FOUND);
   }
 
   const result = await api.aqlQuery(
@@ -538,13 +546,13 @@ async function applySingleRule(
   await enrichRuleApplyRows(previewRows);
 
   if (mode === 'and-commit') {
-    printRows(format, 'rules-run-preview', previewRows, APPLY_COLUMNS, {
-      rule: ruleId,
-      matched: previewRows.length,
-      updated: 0,
-      dryRun: 1,
-      skipped_transfers: skippedMatchedTransfers,
-    });
+    const snapshot = snapshotContext
+      ? await createMutationSnapshot(
+          snapshotContext.dataDir,
+          snapshotContext.budgetId,
+          'rules-run',
+        )
+      : undefined;
     const applyResult = (await send('rule-apply-actions', {
       transactions: matched,
       actions,
@@ -554,17 +562,37 @@ async function applySingleRule(
       asRecordRows(applyResult.updated),
       ruleId,
     );
-    printStatusOk({
-      entity: 'rules-run-result',
-      rule: ruleId,
-      matched: appliedRows.length,
-      updated: appliedRows.length,
-      skipped_transfers: skippedMatchedTransfers,
-    });
+    if (format === 'json') {
+      printRows(format, 'rules-run', previewRows, APPLY_COLUMNS, {
+        rule: ruleId,
+        matched: appliedRows.length,
+        updated: appliedRows.length,
+        dryRun: 0,
+        skipped_transfers: skippedMatchedTransfers,
+        snapshot,
+      });
+    } else {
+      printRows(format, 'rules-run-preview', previewRows, APPLY_COLUMNS);
+      printStatusOk({
+        entity: 'rules-run-result',
+        rule: ruleId,
+        matched: appliedRows.length,
+        updated: appliedRows.length,
+        skipped_transfers: skippedMatchedTransfers,
+        snapshot,
+      });
+    }
     return;
   }
 
   if (mode === 'apply') {
+    const snapshot = snapshotContext
+      ? await createMutationSnapshot(
+          snapshotContext.dataDir,
+          snapshotContext.budgetId,
+          'rules-run',
+        )
+      : undefined;
     const applyResult = (await send('rule-apply-actions', {
       transactions: matched,
       actions,
@@ -581,6 +609,7 @@ async function applySingleRule(
       updated: appliedRows.length,
       dryRun: 0,
       skipped_transfers: skippedMatchedTransfers,
+      snapshot,
     });
     return;
   }
@@ -742,7 +771,7 @@ and matched_rule.`,
 
         await withBudget(
           { ...session, write: !dryRun },
-          async () => {
+          async resolved => {
             const includeTransfers = Boolean(options.includeTransfers);
 
             if (options.rule) {
@@ -751,7 +780,13 @@ and matched_rule.`,
                 : dryRun
                   ? 'dry-run'
                   : 'apply';
-              await applySingleRule(options.rule, format, mode, includeTransfers);
+              await applySingleRule(
+                options.rule,
+                format,
+                mode,
+                includeTransfers,
+                { dataDir: resolved.dataDir, budgetId: resolved.budgetId! },
+              );
               return;
             }
 
@@ -830,22 +865,42 @@ and matched_rule.`,
               }));
 
             if (andCommit) {
-              printRows(format, 'rules-run-preview', changed, APPLY_COLUMNS, {
-                matched: changed.length,
-                updated: 0,
-                dryRun: 1,
-                skipped_transfers: skippedTransfers,
-              });
+              const snapshot = changed.length > 0
+                ? await createMutationSnapshot(
+                    resolved.dataDir,
+                    resolved.budgetId!,
+                    'rules-run',
+                  )
+                : undefined;
               if (changed.length > 0) {
                 await send('transactions-batch-update', { updated: buildUpdates() });
               }
-              printStatusOk({
-                entity: 'rules-run-result',
-                matched: changed.length,
-                updated: changed.length,
-                skipped_transfers: skippedTransfers,
-              });
+              if (format === 'json') {
+                printRows(format, 'rules-run', changed, APPLY_COLUMNS, {
+                  matched: changed.length,
+                  updated: changed.length,
+                  dryRun: 0,
+                  skipped_transfers: skippedTransfers,
+                  snapshot,
+                });
+              } else {
+                printRows(format, 'rules-run-preview', changed, APPLY_COLUMNS);
+                printStatusOk({
+                  entity: 'rules-run-result',
+                  matched: changed.length,
+                  updated: changed.length,
+                  skipped_transfers: skippedTransfers,
+                  snapshot,
+                });
+              }
             } else {
+              const snapshot = changed.length > 0 && !dryRun
+                ? await createMutationSnapshot(
+                    resolved.dataDir,
+                    resolved.budgetId!,
+                    'rules-run',
+                  )
+                : undefined;
               if (changed.length > 0 && !dryRun) {
                 await send('transactions-batch-update', { updated: buildUpdates() });
               }
@@ -854,6 +909,7 @@ and matched_rule.`,
                 updated: dryRun ? 0 : changed.length,
                 dryRun: dryRun ? 1 : 0,
                 skipped_transfers: skippedTransfers,
+                snapshot,
               });
             }
           },
@@ -930,19 +986,26 @@ See "rules list --help" for conditions/actions schema.`,
         const rule = parseJsonWithSchema(ruleJson, RuleInputSchema, 'rule payload');
         await withBudget(
           { ...session, write: true },
-          async () => {
+          async resolved => {
             await validateRuleOrThrow(rule);
             const created = (await api.createRule(
               rule as unknown as Parameters<typeof api.createRule>[0],
             )) as { id?: string };
+            if (options.run && created?.id) {
+              await applySingleRule(
+                created.id,
+                format,
+                'apply',
+                false,
+                { dataDir: resolved.dataDir, budgetId: resolved.budgetId! },
+              );
+              return;
+            }
             printStatusOk({
               entity: 'rule',
               action: 'create',
               id: created?.id,
             });
-            if (options.run && created?.id) {
-              await applySingleRule(created.id, format, 'apply');
-            }
           },
         );
       }),
@@ -1020,8 +1083,9 @@ The entire rule object must be provided (not just changed fields).`,
               id: rule.id,
             })) as Record<string, unknown> | null;
             if (!existing) {
-              throw new Error(
+              throw new CliError(
                 `Rule not found: ${rule.id}. Pass the full rule id from 'fscl rules list' — updating a nonexistent id would silently create a duplicate rule.`,
+                ErrorCodes.ENTITY_NOT_FOUND,
               );
             }
             await validateRuleOrThrow(rule);

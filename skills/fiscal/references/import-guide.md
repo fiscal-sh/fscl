@@ -237,19 +237,24 @@ fscl transactions import abc123 ./download.qif --flip-amount --report
 
 ### With `--show-rows`
 
-You still get the JSON import status object, plus an additional JSON payload with `entity: "import-rows"`:
+The single JSON response includes a `rows` array. Combining `--show-rows` and
+`--report` still emits exactly one JSON document; the compact report is nested
+under `report`:
 
 ```json
 {
   "status": "ok",
-  "entity": "import-rows",
-  "count": 2,
-  "data": [
+  "entity": "import",
+  "amounts": "minor_units",
+  "rows": [
     { "date": "2026-01-05", "amount": -4599, "payee_name": "STARBUCKS #1234", "category": null, "notes": "coffee" },
     { "date": "2026-01-06", "amount": -12300, "payee_name": "WHOLE FOODS MKT", "category": null, "notes": "groceries" }
   ]
 }
 ```
+
+Committed imports also return `snapshot`, the pre-import budget export. fscl
+keeps the newest ten snapshots under `<dataDir>/<budgetId>/snapshots/`.
 
 ### With `--dry-run`
 

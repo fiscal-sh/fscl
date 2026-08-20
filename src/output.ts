@@ -1,5 +1,3 @@
-import type { PrimitiveRecordValue } from './types.js';
-
 type Row = Record<string, unknown>;
 
 let activeColumnFilter: string[] | undefined;
@@ -98,16 +96,17 @@ function projectRows(
   };
 }
 
-export function printStatusOk(fields: Record<string, PrimitiveRecordValue> = {}) {
+export function printStatusOk(fields: Record<string, unknown> = {}) {
   printJson({
     status: 'ok',
+    amounts: 'minor_units',
     ...fields,
   });
 }
 
 export function printStatusErr(
   message: string,
-  fields: Record<string, PrimitiveRecordValue> = {},
+  fields: Record<string, unknown> = {},
 ) {
   printJson({
     status: 'err',
@@ -125,7 +124,7 @@ export function printRows(
   entity: string,
   rows: Row[],
   columns?: string[],
-  extra: Record<string, PrimitiveRecordValue> = {},
+  extra: Record<string, unknown> = {},
 ) {
   const projected = projectRows(rows, columns);
   if (format === 'table') {
@@ -134,6 +133,7 @@ export function printRows(
   }
   printJson({
     status: 'ok',
+    amounts: 'minor_units',
     entity,
     count: projected.rows.length,
     ...extra,
@@ -159,6 +159,7 @@ export function printDraftValidationErrors(
 ): void {
   printJson({
     status: 'err',
+    code: 'DRAFT_VALIDATION',
     entity,
     count: errors.length,
     errors,
@@ -166,5 +167,9 @@ export function printDraftValidationErrors(
 }
 
 export function printObject(object: Record<string, unknown>): void {
-  printJson(object);
+  printJson(
+    object.status === 'ok' && object.amounts === undefined
+      ? { ...object, amounts: 'minor_units' }
+      : object,
+  );
 }

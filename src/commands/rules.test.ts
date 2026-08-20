@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -266,6 +266,47 @@ describe('rules run transfer protection', () => {
     }>(cli(['rules', 'run', '--dry-run', '--include-transfers']).stdout);
     const matched = optIn.matched ?? optIn.metadata?.matched ?? 0;
     expect(matched).toBe(2);
+
+    const plainTransaction = cli([
+      'transactions',
+      'add',
+      checking.id,
+      '--date',
+      '2026-02-11',
+      '--amount',
+      '-5.00',
+      '--notes',
+      'Plain rule target',
+    ]);
+    expect(plainTransaction.exitCode).toBe(0);
+    const plainRule = cli([
+      'rules',
+      'create',
+      JSON.stringify({
+        stage: null,
+        conditionsOp: 'and',
+        conditions: [
+          { field: 'notes', op: 'contains', value: 'Plain rule target' },
+        ],
+        actions: [{ field: 'payee', op: 'set', value: roguePayee.id }],
+      }),
+    ]);
+    expect(plainRule.exitCode).toBe(0);
+
+    // --and-commit must remain one parseable JSON document while reporting the
+    // automatic pre-mutation snapshot.
+    const committed = parseJsonOutput<{
+      matched: number;
+      updated: number;
+      skipped_transfers: number;
+      snapshot: string;
+      data: unknown[];
+    }>(cli(['rules', 'run', '--and-commit']).stdout);
+    expect(committed.matched).toBe(1);
+    expect(committed.updated).toBe(1);
+    expect(committed.skipped_transfers).toBe(2);
+    expect(committed.data).toHaveLength(1);
+    expect(existsSync(committed.snapshot)).toBe(true);
   }, 30000);
 
   it('refuses to update a rule that does not exist', () => {
