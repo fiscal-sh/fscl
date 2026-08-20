@@ -8,7 +8,7 @@ import {
   getFormat,
   getSessionOptions,
 } from '../cli.js';
-import { parseAmount, withBudget } from '../budget.js';
+import { parseAmount, parseMinorUnits, withBudget } from '../budget.js';
 import { deleteDraft, readDraft, writeDraft } from '../drafts.js';
 import { printDraftValidationErrors, printRows, printStatusOk } from '../output.js';
 import {
@@ -382,9 +382,7 @@ Only categoryId and amount are used on apply. group and name are context.`,
             categoryId: row.category_id,
             group: row.group_name,
             name: row.category_name,
-            amount: (
-              api.utils.integerToAmount(row.budgeted) as number
-            ).toFixed(2),
+            amount: row.budgeted,
           }));
 
           const filename = `budget-${validatedMonth}.json`;
@@ -468,7 +466,7 @@ and sets budget amounts for each entry. Deletes the draft file on success.`,
 
             const rows: Array<Record<string, unknown>> = [];
             for (const entry of result.data) {
-              const intAmount = parseAmount(entry.amount);
+              const intAmount = parseMinorUnits(entry.amount, 'draft amount');
               await api.setBudgetAmount(
                 validatedMonth,
                 entry.categoryId,

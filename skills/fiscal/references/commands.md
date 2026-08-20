@@ -5,7 +5,7 @@ Common patterns and recipes. For full flag/output details, see [command-referenc
 ## Conventions
 
 - Always pass `--json` — present output as human-friendly summaries, never raw JSON.
-- Amounts: input as decimals (`--amount 45.99`, schedule JSON `"amount": -15.99`), output in integer minor units (`-4599`). Successful JSON declares `"amounts":"minor_units"`. Rule condition JSON also uses minor units (e.g. `-1046`).
+- Amounts: all JSON payloads and output use integer minor units (`-4599` = -$45.99) — drafts, schedule JSON, rule JSON, and `create-batch` balances alike. Successful JSON declares `"amounts":"minor_units"`. Decimal notation only in command-line flags and args (`--amount 45.99`).
 - Dates: `YYYY-MM-DD`. Months: `YYYY-MM`.
 - JSON input: pass inline or use `@filepath` to read from file.
 - Deletion: always requires `--yes`. Use `--transfer-to <id>` to reassign children before deleting.

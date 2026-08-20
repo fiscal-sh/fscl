@@ -198,10 +198,34 @@ export async function withBudget<T>(
   });
 }
 
+/** Decimal notation for human-typed CLI flags and args (--amount 45.99). */
 export function parseAmount(input: string): number {
   const value = Number(input);
   if (!Number.isFinite(value)) {
     throw new Error(`Invalid amount: ${input}`);
   }
   return api.utils.amountToInteger(value);
+}
+
+/**
+ * Integer minor units for JSON payloads and draft files (-4599 = -$45.99),
+ * matching the output convention so list/draft/apply round-trips are
+ * identity. A fractional value is almost always a decimal-dollars mistake,
+ * so the error says how to convert.
+ */
+export function parseMinorUnits(value: unknown, label = 'amount'): number {
+  const parsed = typeof value === 'string' ? Number(value) : value;
+  if (typeof parsed !== 'number' || !Number.isFinite(parsed)) {
+    throw new CliError(
+      `Invalid ${label}: expected integer minor units (e.g. -4599 for -$45.99), got ${JSON.stringify(value)}`,
+      ErrorCodes.INVALID_INPUT,
+    );
+  }
+  if (!Number.isInteger(parsed)) {
+    throw new CliError(
+      `Invalid ${label}: JSON amounts are integer minor units, not decimals. Use ${api.utils.amountToInteger(parsed)} instead of ${parsed}.`,
+      ErrorCodes.INVALID_INPUT,
+    );
+  }
+  return parsed;
 }

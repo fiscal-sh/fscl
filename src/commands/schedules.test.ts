@@ -71,7 +71,7 @@ describe('schedules create/update', () => {
         name: 'Netflix',
         account: account.id,
         payee: payee.id,
-        amount: -15.99,
+        amount: -1599,
         date: { frequency: 'monthly', start: '2026-01-01', interval: 1 },
       }),
     ]);
@@ -92,7 +92,7 @@ describe('schedules create/update', () => {
       'schedules',
       'update',
       created.id,
-      JSON.stringify({ amount: -16.99 }),
+      JSON.stringify({ amount: -1699 }),
     ]);
     expect(updateResult.exitCode).toBe(0);
 
@@ -232,7 +232,7 @@ describe('schedules create/update', () => {
       'schedules',
       'update',
       schedule.id,
-      JSON.stringify({ amount: { num1: -12, num2: -8 } }),
+      JSON.stringify({ amount: { num1: -1200, num2: -800 } }),
     ]);
     expect(incompatibleAmount.exitCode).not.toBe(0);
     expect(parseJsonOutput<{ message: string }>(incompatibleAmount.stdout).message).toContain(
@@ -268,7 +268,7 @@ describe('schedules create/update', () => {
           name: 'OldService',
           account: account.id,
           payee: payee.id,
-          amount: -9.99,
+          amount: -999,
           date: { frequency: 'monthly', start: '2026-01-01', interval: 1 },
         }),
       ]).stdout,

@@ -25,9 +25,9 @@ Normalize account names to include account type so future sessions stay unambigu
 
 ```bash
 fscl accounts create-batch '[
-  {"name": "Chase Checking 5736", "balance": "3500.00"},
-  {"name": "Ally Savings 1120", "balance": "12000.00"},
-  {"name": "Chase Credit 8891", "balance": "-840.00"}
+  {"name": "Chase Checking 5736", "balance": 350000},
+  {"name": "Ally Savings 1120", "balance": 1200000},
+  {"name": "Chase Credit 8891", "balance": -84000}
 ]'
 ```
 
@@ -72,7 +72,7 @@ Start with known fixed expenses (rent, insurance, car payment). Subtract from in
 
 ```bash
 fscl month draft <current-month>
-# Edit the draft — set amount for each category as a decimal string (e.g. "500.00")
+# Edit the draft — set amount for each category in integer minor units (e.g. 50000 for $500.00)
 fscl month apply <current-month>
 ```
 

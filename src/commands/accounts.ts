@@ -8,7 +8,7 @@ import {
   getFormat,
   getSessionOptions,
 } from '../cli.js';
-import { parseAmount, withBudget } from '../budget.js';
+import { parseAmount, parseMinorUnits, withBudget } from '../budget.js';
 import { printRows, printStatusOk } from '../output.js';
 import {
   getActionCommand,
@@ -179,7 +179,9 @@ Optional: offbudget (boolean), balance (decimal string)`,
             const rows: Array<Record<string, unknown>> = [];
             for (const entry of entries) {
               const initialBalance =
-                entry.balance != null ? parseAmount(String(entry.balance)) : 0;
+                entry.balance != null
+                  ? parseMinorUnits(entry.balance, 'balance')
+                  : 0;
               const id = await api.createAccount(
                 {
                   name: entry.name,

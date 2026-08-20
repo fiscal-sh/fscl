@@ -10,7 +10,7 @@ import {
   getFormat,
   getSessionOptions,
 } from '../cli.js';
-import { parseAmount, withBudget } from '../budget.js';
+import { parseAmount, parseMinorUnits, withBudget } from '../budget.js';
 import { deleteDraft, readDraft, writeDraft } from '../drafts.js';
 import {
   printDraftValidationErrors,
@@ -112,9 +112,8 @@ const CategorizeDraftSchema = z.array(CategorizeDraftEntrySchema).min(
 const EditDraftEntrySchema = z.object({
   id: z.string().min(1, 'Transaction ID is required'),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD').optional(),
-  amount: z.string().regex(
-    /^-?\d+(\.\d{1,2})?$/,
-    'Expected decimal string (e.g. "-45.99")',
+  amount: z.number().int(
+    'Expected integer minor units (e.g. -4599 for -$45.99)',
   ).optional(),
   payee: z.union([z.string().min(1), z.null()]).optional(),
   category: z.union([z.string().min(1), z.null()]).optional(),
@@ -1424,9 +1423,7 @@ Edit the fields you want to change, then run:
           const draftEntries = rows.map(row => ({
             id: String(row.id ?? ''),
             date: String(row.date ?? ''),
-            amount: typeof row.amount === 'number'
-              ? api.utils.integerToAmount(row.amount).toFixed(2)
-              : '0.00',
+            amount: typeof row.amount === 'number' ? row.amount : 0,
             payee:
               typeof row.payee === 'string' && row.payee !== ''
                 ? row.payee
@@ -1539,7 +1536,7 @@ destructive behavior. The draft is deleted on success.`,
               fields.date = asDate(entry.date);
             }
             if (entry.amount != null) {
-              fields.amount = parseAmount(entry.amount);
+              fields.amount = parseMinorUnits(entry.amount, 'draft amount');
             }
             if (entry.payee !== undefined) {
               fields.payee = entry.payee;
